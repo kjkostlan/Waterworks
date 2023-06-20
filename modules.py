@@ -1,29 +1,29 @@
 # Loading new modules and updating modules (but not file io)
 import sys, os, importlib, io, re
 import proj
-from . import file_io, updater
+from . import file_io, py_updater
 
-mglobals = proj.proj.init_get('modules_globals', {'varflush_queue':[]})
+mglobals = proj.global_get('modules_globals', {'varflush_queue':[]})
 
 def add_to_path(folder_name):
-    # Also adds the updater paths.
+    # Also adds the py_updater paths.
     # https://docs.python.org/3/library/sys.html#sys.path
-    folder_name = file_io.termp_abs_path(folder_name)
+    folder_name = file_io.abs_path(folder_name, True)
     if folder_name not in set(sys.path):
-        sys.path = [file_io.termp_abs_path(folder_name)]+sys.path
-    updater.add_user_path(folder_name)
+        sys.path = [file_io.abs_path(folder_name, True)]+sys.path
+    py_updater.add_user_path(folder_name)
 
 def pop_from_path():
     # Used much less often.
-    if len(updater.uglobals['user_paths'])>1:
-        updater.uglobals['user_paths'] = updater.uglobals['user_paths'][1:]
+    if len(py_updater.uglobals['user_paths'])>1:
+        py_updater.uglobals['user_paths'] = py_updater.uglobals['user_paths'][1:]
         sys.path = sys.path[1:]
 
 def is_user(modulename):
     # Only change user files.
     fname = module_file(sys.modules[modulename])
     if fname is not None:
-        phs = updater.get_user_paths()
+        phs = py_updater.get_user_paths()
         for ph in phs:
             if ph in fname:
                 return True
@@ -35,7 +35,7 @@ def module_file(m):
         m = sys.modules[m]
     if '__file__' not in m.__dict__ or m.__file__ is None:
         return None
-    return file_io.termp_abs_path(m.__file__).replace('\\','/')
+    return file_io.abs_path(m.__file__, True).replace('\\','/')
 
 def module_fnames(user_only=False):
     # Only modules that have files, and dict values are module names.
@@ -56,11 +56,11 @@ def module_from_file(modulename, pyfname, exec_module=True):
             #update_one_module(modulename, False) # Shouldn't be necessary as long as update_user_changed_modules is bieng called.
             return sys.modules[modulename]
         elif pyfname0 is not None:
-            pyfname = file_io.termp_abs_path(pyfname).replace('\\','/')
+            pyfname = file_io.abs_path(pyfname, True).replace('\\','/')
             if pyfname != pyfname0:
                 raise Exception('Shadowing modulename: '+modulename+' Old py.file: '+pyfname0+ 'New py.file '+pyfname)
 
-    folder_name = os.path.dirname(file_io.termp_abs_path(pyfname))
+    folder_name = os.path.dirname(file_io.abs_path(pyfname, True))
     add_to_path(folder_name)
 
     #https://stackoverflow.com/questions/67631/how-can-i-import-a-module-dynamically-given-the-full-path

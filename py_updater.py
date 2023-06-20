@@ -1,8 +1,8 @@
 import sys, importlib, time
-from . import file_io, modules
+from . import file_io, modules, fittings
 import proj
 
-uglobals = proj.init_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.termp_abs_path('.')]})
+uglobals = proj.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
 
 try:
@@ -41,7 +41,7 @@ class ModuleUpdate:
 
 def add_user_path(ph):
     # Put your project folders here.
-    ph = file_io.termp_abs_path(ph)
+    ph = file_io.abs_path(ph, True)
     if ph not in uglobals['user_paths']:
         uglobals['user_paths'].append(ph)
 
@@ -52,15 +52,17 @@ def _fupdate(fname, modulename):
     if modulename=='proj':
         raise Exception('No nice way to update proj; restart program recommended.')
     old_vars = get_vars_fn(modulename) if get_vars_fn is not None else {}
-    fname = file_io.termp_abs_path(fname).replace('\\','/')
+    fname = file_io.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
     importlib.reload(sys.modules[modulename])
-    new_txt = file_io.contents(fname)
+    new_txt = file_io.fload(fname)
     if fname in uglobals['filecontents']:
         old_txt = uglobals['filecontents'][fname]
         if old_txt != new_txt and record_txt_update_fn is not None:
-            record_txt_update_fn(modulename, fname, old_txt, new_txt)
+            if old_txt is None:
+                raise Exception('None old_text; files should be preloaded.')
+            record_txt_update_fn(modulename, fname, fittings.txt_edit(old_txt, new_txt))
     else:
         old_txt = None
     uglobals['filecontents'][fname] = new_txt
@@ -74,9 +76,9 @@ def _fupdate(fname, modulename):
 
 def save_py_file(py_file, contents, assert_py_module=False):
     # Saves a python file and makes all the needed updates to the modules.
-    py_file = file_io.termp_abs_path(py_file).replace('\\','/')
+    py_file = file_io.abs_path(py_file, True).replace('\\','/')
 
-    old_txt = file_io.contents(py_file)
+    old_txt = file_io.fload(py_file)
     file_io.fsave(py_file, contents)
 
     f = modules.module_fnames(True)
@@ -89,7 +91,7 @@ def save_py_file(py_file, contents, assert_py_module=False):
         raise Exception('Filename not in listed modules:' + py_file)
 
 def needs_update(modulename, update_on_first_see=True, use_date=False):
-    fname = file_io.termp_abs_path(modules.module_file(modulename))
+    fname = file_io.abs_path(modules.module_file(modulename), True)
     if True not in ['!'+ph in '!'+fname for ph in uglobals['user_paths']]:
         return False # Active paths only.
     if fname not in uglobals['filecontents']: # first time seen.
@@ -97,7 +99,7 @@ def needs_update(modulename, update_on_first_see=True, use_date=False):
     elif use_date:
         return uglobals['filemodified'][fname] < file_io.date_mod(fname)
     else:
-        return uglobals['filecontents'][fname] != file_io.contents(fname)
+        return uglobals['filecontents'][fname] != file_io.fload(fname)
 
 def update_one_module(modulename, fname=None, assert_main=True):
     # The module must already be in the file.
@@ -137,12 +139,12 @@ def startup_cache_sources(modulenames=None):
         filenames = [modules.module_file(m) for m in modulenames]
     for fname in filenames:
         if fname is not None and fname.endswith('.py'):
-            uglobals['filecontents'][fname] = file_io.contents(fname) # no need to call full _fuptate.
+            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
             uglobals['filemodified'][fname] = file_io.date_mod(fname)
 
 def startup_python(modulename, pyfname, exec_module=True):
     out = modules.module_from_file(modulename, pyfname, exec_module)
-    uglobals['filecontents'][pyfname] = file_io.contents(pyfname) # no need to call full _fuptate.
+    uglobals['filecontents'][pyfname] = file_io.fload(pyfname) # no need to call full _fuptate.
     uglobals['filemodified'][pyfname] = file_io.date_mod(pyfname)
     return out
 

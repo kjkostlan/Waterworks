@@ -8,7 +8,7 @@
 import time, re, os, sys, threading
 import proj
 
-_glbals = proj.init_get('eye_term_globals', {'log_pipes':[]})
+_glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
 
 try:

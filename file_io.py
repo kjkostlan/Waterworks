@@ -5,10 +5,9 @@ try:
     debug_restrict_disk_modifications_to_these
 except:
     debug_restrict_disk_modifications_to_these = None
-    use_orig_working_directory=False
 
 ph = os.path.realpath('.').replace('\\','/')
-fglobals = proj.init_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
+fglobals = proj.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
                                                'user_paths':[ph],'checkpoints':{},'created_files':set()})
 
 def linux_if_str(txt):
@@ -35,7 +34,7 @@ def is_path_absolute(fname):
 def user_paths():
     return fglobals['user_paths'].copy()
 
-def abs_path(fname):
+def abs_path(fname, use_orig_working_directory=False):
     # The absolute path, using either the current working directory OR the original working directory.
     # The former option will change if os.ch_dir() is called.
     if is_path_absolute(fname) or not use_orig_working_directory:
@@ -43,11 +42,11 @@ def abs_path(fname):
     else:
         out = os.path.realpath(fglobals['original_cwd']+'/'+fname).replace('\\','/')
         if not is_path_absolute(out):
-            raise Exception('Output path not absolute TODO assert bug in this code.')
+            raise Exception('Assert failed: Output path not absolute but in this code.')
         return out
 
 def rel_path(fname):
-    # Relative path.
+    # Relative path (NOT realpath, which is an absolute path!).
     # Will default to abs_path if not inside the current working directory (less messy than double dots).
     a = abs_path(fname)
     ph = abs_path(os.path.dirname(os.path.realpath(__file__))) #https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
@@ -235,8 +234,12 @@ def save_checkpoint(name):
 ###########################Deleting ############################################
 
 def fdelete(fname):
+    # Basic delete which will fail for windows file-in-use errors as well as readonly files in folders.
     if os.path.exists(fname):
-        os.unlink(fname)
+        if is_folder(fname):
+            shutil.rmtree(fname)
+        else:
+            os.unlink(fname)
 
 def power_delete(fname, tries=12, retry_delay=1.0):
     # Can be reverted IF there is a checkpoint saved.
@@ -328,14 +331,14 @@ def _fileallow(fname):
     else:
         return True
 
-def gaurded_delete(fname, allow_folders=False):
+def guarded_delete(fname, allow_folders=False, powerful=False):
     # Deleting is dangerous.
     fname = abs_path(fname)
     if not _fileallow(fname):
         raise Exception('debug_restrict_disk_modifications_to_these is set to: '+str(debug_restrict_disk_modifications_to_these).replace('\\\\','/')+' and disallows deleting this filename: '+fname)
     if os.path.isdir(fname) and not allow_folders:
         raise Exception('Attempt to delete folder (and whats inside) when allow_folders=False.')
-    fdelete(fname)
+    power_delete(fname) if powerful else fdelete(fname)
 
 def guarded_create(fname, is_folder):
     # Creating files isn't all that dangerous, but still can be annoying.
