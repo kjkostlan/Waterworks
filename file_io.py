@@ -138,16 +138,27 @@ def folder_load(folder_path, initial_path=None, allowed_extensions=None, acc=Non
 
     return acc
 
+def python_source_load():
+    # Gets the src cache from the current folder, filename => contents with local cache.
+    # Looks for all python files within this directory.
+    fname2contents = {}
+    for root, dirs, files in os.walk(".", topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
+        for fname in files:
+            if fname.endswith('.py'):
+                fnamer = rel_path(os.path.join(root, fname))
+                fname2contents[fnamer] = fload(fnamer)
+    return fname2contents
+
 #####################################Saving#####################################
 
 def pickle64(x):
-    # Pickles all the Python files (with UTF-8), or changed ones with diff.
-    # Updates the _last_pickle so only use when installing.
+    # Base 64 pickle, which can be pasted into the command line of i.e. a cloud shell.
     #https://stackoverflow.com/questions/30469575/how-to-pickle-and-unpickle-to-portable-string-in-python-3
     return codecs.encode(pickle.dumps(x), "base64").decode()
 
 def disk_unpickle64(txt64):
-    # Saves to the disk, deletes None files. Pickle can handle local paths.
+    # Unpickels a pickle64 dict from filename to file contents, saving it to the disk.
+    # The filenames should be relative paths so that it can work across folders/machines.
     fname2obj = pickle.loads(codecs.decode(txt64.encode(), "base64"))
     for fname, txt in fname2obj.items():
         if txt is None:

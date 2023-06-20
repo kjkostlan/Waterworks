@@ -238,7 +238,7 @@ def update_src_cache(new_cache=None): # Also returns which modules changed (only
     for k in new_cache.keys():
         _src_cache[k] = new_cache[k]
 
-def unpickle_and_update(txt64, update_us=True, update_vms=True):
+def unpickle64_and_update(txt64, update_us=True, update_vms=True):
     file_io.disk_unpickle64(txt64)
     delta = src_cache_diff()
     if update_us:
