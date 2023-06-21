@@ -84,3 +84,16 @@ def txt_edit(old_txt, new_txt):
     bx0 = ax0+b0.b-b0.a; bx1 = bx0+(ax1-ax0)
 
     return [ax0, ax1, old_txt[ax0:ax1], new_txt[bx0:bx1]]
+
+def utf8_one_char(read_bytes_fn):
+    # One unicode char may be multible bytes, but if so the first n-1 bytes are not valid single byte chars.
+    # See: https://en.wikipedia.org/wiki/UTF-8.
+    # TODO: consider: class io.TextIOWrapper(buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False)
+    bytes = read_bytes_fn(1)
+    while True:
+        try:
+            return bytes.decode('UTF-8')
+        except UnicodeDecodeError as e:
+            if 'unexpected end of data' not in str(e):
+                raise e
+            bytes = bytes+read_bytes_fn(1)

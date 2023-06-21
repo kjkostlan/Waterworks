@@ -6,6 +6,7 @@
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
 import proj
+from . import fittings
 
 _glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
@@ -112,19 +113,6 @@ def standard_is_done(txt):
 
 ################################Pipe mutation fns###############################
 
-def utf8_one_char(read_bytes_fn):
-    # One unicode char may be multible bytes, but if so the first n-1 bytes are not valid single byte chars.
-    # See: https://en.wikipedia.org/wiki/UTF-8.
-    # TODO: consider: class io.TextIOWrapper(buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False)
-    bytes = read_bytes_fn(1)
-    while True:
-        try:
-            return bytes.decode('UTF-8')
-        except UnicodeDecodeError as e:
-            if 'unexpected end of data' not in str(e):
-                raise e
-            bytes = bytes+read_bytes_fn(1)
-
 class ThreadSafeList(): # TODO: deprecated.
     # Fill in a read loop on another thread and then use pop_all()
     # https://superfastpython.com/thread-safe-list/
@@ -162,6 +150,132 @@ def pipe_loop(tubo, is_err): # For ever watching... untill the thread gets close
         time.sleep(dt)
         dt = min(dt1, dt*1.414)
 
+################################Which-pipe specific fns###############################
+
+def _init_terminal(self):
+    #https://stackoverflow.com/questions/375427/a-non-blocking-read-on-a-subprocess-pipe-in-python/4896288#4896288
+    #https://stackoverflow.com/questions/156360/get-all-items-from-thread-queue
+    import subprocess, pty
+    terminal = 'cmd' if os.name=='nt' else 'bash' # Windows vs non-windows.
+    posix_mode = 'posix' in sys.builtin_module_names
+    if not proc_args:
+        procX = terminal
+    elif type(proc_args) is str:
+        procX = proc_args
+    elif type(proc_args) is list or type(proc_args) is tuple:
+        procX = ' '.join(proc_args)
+    elif type(proc_args) is dict:
+        procX = ' '.join([k+' '+proc_args[k] for k in proc_args.keys()])
+    else:
+        raise Exception('For the shell, the type of proc args must be str, list, or dict.')
+    def _read_loop(the_pipe, safe_list):
+        while True:
+            safe_list.append(ord(the_pipe.read(1)) if self.binary_mode else fittings.utf8_one_char(the_pipe.read))
+
+    use_pty = False # Why does pexpect work so much better than vanilla? Is this the secret sauce? But said sauce is hard to use, thus it's False for now.
+    #https://gist.github.com/thomasballinger/7979808
+    if use_pty:
+        peacock, tail = pty.openpty(); stdin=tail
+        pty_input = os.fdopen(peacock, 'w')
+    else:
+        pty_input = None
+        stdin = subprocess.PIPE
+
+    p = subprocess.Popen(procX, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=posix_mode) # shell=True has no effect?
+
+    def _stdouterr_f(is_err):
+        p_std = p.stderr if is_err else p.stdout
+        p_std.flush()
+        if self.binary_mode:
+            return p_std.read(1)
+        else:
+            return fittings.utf8_one_char(p_std.read)
+
+    self._close = lambda self: p.terminate()
+
+    def _send(x, include_newline=True):
+        x = self._to_input(x, include_newline=include_newline)
+        if use_pty:
+            if type(x) is bytes:
+                x = x.decode('UTF-8')
+            pty_input.write(x)
+            pty_input.flush()
+        else:
+            if type(x) is str: # Bash subprocesses always take binary bytes?
+                x = x.encode()
+            p.stdin.write(x)
+            p.stdin.flush()
+    self.send_f = _send
+
+    self.stdout_f = lambda: _stdouterr_f(False)
+    self.stderr_f = lambda: _stdouterr_f(True)
+
+def _init_paramiko(self):
+    # Paramiko terminals.
+    #https://unix.stackexchange.com/questions/70895/output-of-command-not-in-stderr-nor-stdout?rq=1
+    #https://stackoverflow.com/questions/55762006/what-is-the-difference-between-exec-command-and-send-with-invoke-shell-on-para
+    #https://stackoverflow.com/questions/40451767/paramiko-recv-ready-returns-false-values
+    #https://gist.github.com/kdheepak/c18f030494fea16ffd92d95c93a6d40d
+    import paramiko
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy()) # Being permissive is quite a bit easier...
+    #if not proc_args:
+    #    proc_args['banner_timeout'] = 32 # Does this help?
+    client.connect(**proc_args) #password=passphrase) #proc_args['hostname'],
+    use_keepalive=True
+    if use_keepalive: #https://stackoverflow.com/questions/5402919/prevent-sftp-ssh-session-timeout-with-paramiko
+        transport = client.get_transport()
+        transport.set_keepalive(30)
+    channel = client.invoke_shell()
+    self._streams = channel
+
+    def _send(x, include_newline=True):
+        channel.send(self._to_input(x, include_newline=include_newline))
+    self.send_f = _send
+    def _get_elements(ready_fn, read_fn):
+        out = []
+        while ready_fn():
+            out.append(ord(read_fn(1)) if self.binary_mode else fittings.utf8_one_char(read_fn))
+        return ''.join(out).encode() if self.binary_mode else ''.join(out)
+    self.stdout_f = lambda: _get_elements(channel.recv_ready, channel.recv)
+    self.stderr_f = lambda: _get_elements(channel.recv_stderr_ready, channel.recv_stderr)
+
+    #chan = client.get_transport().open_session() #TODO: what does this do and is it needed?
+    self._close = lambda self: client.close()
+
+def _init_core(self, proc_type, proc_args=None, binary_mode=False):
+    self.send_f = None # Send strings OR bytes.
+    self.stdout_f = None # Returns an empty bytes if there is nothing to get.
+    self.stderr_f = None
+    self._streams = None # Mainly used for debugging.
+    self.color = 'linux'
+    self.remove_control_chars = rm_ctrl_chars_default # **Only on printing** Messier but should prevent terminal upsets.
+    self._close = None
+    self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
+
+    if proc_type == 'shell':
+        _init_terminal(self)
+    elif proc_type == 'ssh' or proc_type == 'paramiko':
+        _init_paramiko(self)
+    else: # TODO: more kinds of pipes.
+        raise Exception('proc_type must be "shell" or "ssh"')
+
+    if self.stdout_f is None or self.stderr_f is None:
+        raise Exception('stdout_f and/or stderr_f not set.')
+
+    for lot in self.loop_threads:
+        lot.daemon = True; lot.start() # This must only happen when the setup is complete.
+    self.is_init = True
+
+    tweak_prompt = True
+    if proc_type=='shell' and tweak_prompt:
+        #https://ss64.com/bash/syntax-prompt.html
+        for var in ['PS0','PS1','PS2','PS3','PS4','PROMPT_COMMAND']:
+            txt = f"export {var}='$'"
+            self.send(txt, include_newline=True, suppress_input_prints=False, add_to_packets=True)
+
+################################The core MessyPipe##############################
+
 class MessyPipe:
     # The low-level basic messy pipe object with a way to get [output, error] as a string.
     def _to_output(self, x):
@@ -177,150 +291,11 @@ class MessyPipe:
             x = x+'\n'
         return x
 
-    def _init_core(self, proc_type, proc_args=None, binary_mode=False):
-        self.send_f = None # Send strings OR bytes.
-        self.stdout_f = None # Returns an empty bytes if there is nothing to get.
-        self.stderr_f = None
-        self._streams = None # Mainly used for debugging.
-        self.color = 'linux'
-        self.remove_control_chars = rm_ctrl_chars_default # **Only on printing** Messier but should prevent terminal upsets.
-        self._close = None
-        self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
-
-        if proc_type == 'shell':
-            #https://stackoverflow.com/questions/375427/a-non-blocking-read-on-a-subprocess-pipe-in-python/4896288#4896288
-            #https://stackoverflow.com/questions/156360/get-all-items-from-thread-queue
-            import subprocess, pty
-            terminal = 'cmd' if os.name=='nt' else 'bash' # Windows vs non-windows.
-            posix_mode = 'posix' in sys.builtin_module_names
-            if not proc_args:
-                procX = terminal
-            elif type(proc_args) is str:
-                procX = proc_args
-            elif type(proc_args) is list or type(proc_args) is tuple:
-                procX = ' '.join(proc_args)
-            elif type(proc_args) is dict:
-                procX = ' '.join([k+' '+proc_args[k] for k in proc_args.keys()])
-            else:
-                raise Exception('For the shell, the type of proc args must be str, list, or dict.')
-            def _read_loop(the_pipe, safe_list):
-                while True:
-                    safe_list.append(ord(the_pipe.read(1)) if self.binary_mode else utf8_one_char(the_pipe.read))
-
-            use_pty = False # Why does pexpect work so much better than vanilla? This is the secret spicy sauce.
-            #https://gist.github.com/thomasballinger/7979808
-            # But said sauce is hard to use, thus it's False for now.
-            if use_pty:
-                peacock, tail = pty.openpty(); stdin=tail
-                pty_input = os.fdopen(peacock, 'w')
-            else:
-                pty_input = None
-                stdin = subprocess.PIPE
-
-            p = subprocess.Popen(procX, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=posix_mode) # shell=True has no effect?
-
-            def _stdouterr_f(is_err):
-                p_std = p.stderr if is_err else p.stdout
-                p_std.flush()
-                if self.binary_mode:
-                    return p_std.read(1)
-                else:
-                    return utf8_one_char(p_std.read)
-                #the_line = p_std.readline().strip() # Will block here if no line is ready.
-                #print('Has been read on line:', the_line)
-                #if len(the_line)>0: #Just in case it does not block.
-                #    return self._to_output('\n'+the_line)
-                #return self._to_output('')
-                #out = []
-                #print('Begin stdout_err_f')
-                #while True:
-                #    print('In the loop')
-                #    the_line = p_std.readline().strip()
-                #    if len(the_line)==0:
-                #        break
-                #    out.append(the_line)
-                #out = '\n'.join(out)
-                #print('End stdout_err_f')
-                #return self._to_output(out)
-                #ready_to_read, _, _ = select.select([p_std], [], [], 0)
-                #all_data = ''
-                #if p_std in ready_to_read:
-                #    all_data = p_std.read()
-                #print('Ready to read:', ready_to_read, all_data)
-                #return self._to_output(all_data)
-
-            self._close = lambda self: p.terminate()
-
-            def _send(x, include_newline=True):
-                x = self._to_input(x, include_newline=include_newline)
-                if use_pty:
-                    if type(x) is bytes:
-                        x = x.decode('UTF-8')
-                    pty_input.write(x)
-                    pty_input.flush()
-                else:
-                    if type(x) is str: # Bash subprocesses always take binary bytes?
-                        x = x.encode()
-                    p.stdin.write(x)
-                    p.stdin.flush()
-            self.send_f = _send
-
-            self.stdout_f = lambda: _stdouterr_f(False)
-            self.stderr_f = lambda: _stdouterr_f(True)
-
-        elif proc_type == 'ssh':
-            #https://unix.stackexchange.com/questions/70895/output-of-command-not-in-stderr-nor-stdout?rq=1
-            #https://stackoverflow.com/questions/55762006/what-is-the-difference-between-exec-command-and-send-with-invoke-shell-on-para
-            #https://stackoverflow.com/questions/40451767/paramiko-recv-ready-returns-false-values
-            #https://gist.github.com/kdheepak/c18f030494fea16ffd92d95c93a6d40d
-            import paramiko
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy()) # Being permissive is quite a bit easier...
-            #if not proc_args:
-            #    proc_args['banner_timeout'] = 32 # Does this help?
-            client.connect(**proc_args) #password=passphrase) #proc_args['hostname'],
-            use_keepalive=True
-            if use_keepalive: #https://stackoverflow.com/questions/5402919/prevent-sftp-ssh-session-timeout-with-paramiko
-                transport = client.get_transport()
-                transport.set_keepalive(30)
-            channel = client.invoke_shell()
-            self._streams = channel
-
-            def _send(x, include_newline=True):
-                channel.send(self._to_input(x, include_newline=include_newline))
-            self.send_f = _send
-            def _get_elements(ready_fn, read_fn):
-                out = []
-                while ready_fn():
-                    out.append(ord(read_fn(1)) if self.binary_mode else utf8_one_char(read_fn))
-                return ''.join(out).encode() if self.binary_mode else ''.join(out)
-            self.stdout_f = lambda: _get_elements(channel.recv_ready, channel.recv)
-            self.stderr_f = lambda: _get_elements(channel.recv_stderr_ready, channel.recv_stderr)
-
-            #chan = client.get_transport().open_session() #TODO: what does this do and is it needed?
-            self._close = lambda self: client.close()
-        else: # TODO: more kinds of pipes.
-            raise Exception('proc_type must be "shell" or "ssh"')
-
-        if self.stdout_f is None or self.stderr_f is None:
-            raise Exception('stdout_f and/or stderr_f not set.')
-
-        for lot in self.loop_threads:
-            lot.daemon = True; lot.start() # This must only happen when the setup is complete.
-        self.is_init = True
-
-        tweak_prompt = True
-        if proc_type=='shell' and tweak_prompt:
-            #https://ss64.com/bash/syntax-prompt.html
-            for var in ['PS0','PS1','PS2','PS3','PS4','PROMPT_COMMAND']:
-                txt = f"export {var}='$'"
-                self.send(txt, include_newline=True, suppress_input_prints=False, add_to_packets=True)
-
     def ensure_init(self):
         # Will raise some sort of paramiko Exception if the pipe isn't ready yet.
         if self.is_init:
             return
-        self._init_core(proc_type=self.proc_type, proc_args=self.proc_args, binary_mode=self.binary_mode)
+        _init_core(self, proc_type=self.proc_type, proc_args=self.proc_args, binary_mode=self.binary_mode)
 
     def __init__(self, proc_type, proc_args=None, printouts=True, binary_mode=False):
         # Defers creation of the pipe; creation can cause errors if done before i.e. a reboot is complete.
@@ -399,7 +374,7 @@ class MessyPipe:
 
     def API(self, txt, f_polls=None, timeout=8.0):
         # Behaves like an API, returning out, err, and information about which polling fn suceeded.
-        # Optional timeout if all polling fns fail.
+        # Includes a timeout setting if none of the polling functions work properly.
         use_echo = True
         if self.binary_mode:
             use_echo = False
