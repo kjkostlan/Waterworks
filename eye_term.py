@@ -1,4 +1,3 @@
-# TODO: Make a mini project (and remove all aws code).
 # Shell is centered around a human seeing things, and it feeds streams.
 # The human often has to respond mid stream with "y" to continue, for example, or timeout if things are taking too long.
 # Programming languages, on the other hand, are sequential at thier core (often with tools to multitask).

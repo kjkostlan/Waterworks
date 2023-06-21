@@ -179,17 +179,22 @@ def _update_checkpoints_before_saving(fname):
         if fname not in fglobals['checkpoints'][k]:
             fglobals['checkpoints'][k][fname] = txt
 
-def _unwindoze_attempt(f, name, tries, retry_delay):
+def _unwindoze_attempt(f, filename_err_report, tries=12, retry_delay=1, throw_some_errors=False):
     for i in range(tries):
         try:
             f()
             break
         except PermissionError as e:
-            if 'being used by another process' not in str(e):
-                f() # Throw actual permission errors.
+            if 'being used by another process' in str(e):
+                print('File-in-use error (will retry) for:', filename_err_report)
+            else:
+                if throw_some_errors:
+                    f() # Throw actual permission errors.
+                else:
+                    print('Will retry because of this PermissionError:', str(e))
+
             if i==tries-1:
-                raise Exception('Windoze error: Retried too many times and this file stayed in use:', name)
-            print('File-in-use error (will retry) for:', name)
+                raise Exception('Windoze error: Retried too many times and this file stayed in use:', filename_err_report)
             time.sleep(retry_delay)
 
 def _fsave1(fname, txt, mode, tries=12, retry_delay=1.0):
@@ -255,19 +260,20 @@ def fdelete(fname):
 def power_delete(fname, tries=12, retry_delay=1.0):
     # Can be reverted IF there is a checkpoint saved.
     fname = abs_path(fname)
+    if not os.path.exists(fname):
+        return
     _update_checkpoints_before_saving(fname)
 
-    def remove_readonly(func, path, excinfo):
-        os.chmod(path, stat.S_IWRITE) # rmtree can't remove internal read-only files, but the explorer can. This will remov read-only related errors.
-        func(path) # Retry the exception-throwing delete attempt, but now with remove_readonly set to True.
-    def f():
-        if not os.path.exists(fname):
-            return
-        if is_folder(fname):
-            shutil.rmtree(fname, onerror=remove_readonly)
-        else:
-            os.remove(fname)
-    _unwindoze_attempt(f, fname, tries, retry_delay)
+    if is_folder(fname):
+        for root, dirs, files in os.walk(fname, topdown=False):
+            for _fname in files:
+                _fname1 = root+'/'+_fname
+                def f():
+                    os.chmod(_fname1, stat.S_IWRITE)
+                _unwindoze_attempt(f, _fname1, tries, retry_delay)
+        _unwindoze_attempt(lambda: shutil.rmtree(fname), fname, tries, retry_delay)
+    else:
+        _unwindoze_attempt(lambda: os.remove(fname), fname, tries, retry_delay)
 
 def clear_pycache(fname):
     fname = abs_path(fname)
