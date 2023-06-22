@@ -152,22 +152,19 @@ def pipe_loop(tubo, is_err): # For ever watching... untill the thread gets close
 
 ################################Which-pipe specific fns###############################
 
-def _init_terminal(self):
+def _init_local_subprocess(self, which_proc):
     #https://stackoverflow.com/questions/375427/a-non-blocking-read-on-a-subprocess-pipe-in-python/4896288#4896288
     #https://stackoverflow.com/questions/156360/get-all-items-from-thread-queue
     import subprocess, pty
+    proc_args=self.proc_args; binary_mode=self.binary_mode
+
+    if proc_args is None:
+        proc_args = []
+    if type(proc_args) is not list and type(proc_args) is not tuple:
+        raise Exception('Proc_args must be a list (can be None/empty list).')
+    which_proc_plus_args = [which_proc]+proc_args
     terminal = 'cmd' if os.name=='nt' else 'bash' # Windows vs non-windows.
     posix_mode = 'posix' in sys.builtin_module_names
-    if not proc_args:
-        procX = terminal
-    elif type(proc_args) is str:
-        procX = proc_args
-    elif type(proc_args) is list or type(proc_args) is tuple:
-        procX = ' '.join(proc_args)
-    elif type(proc_args) is dict:
-        procX = ' '.join([k+' '+proc_args[k] for k in proc_args.keys()])
-    else:
-        raise Exception('For the shell, the type of proc args must be str, list, or dict.')
     def _read_loop(the_pipe, safe_list):
         while True:
             safe_list.append(ord(the_pipe.read(1)) if self.binary_mode else fittings.utf8_one_char(the_pipe.read))
@@ -181,7 +178,7 @@ def _init_terminal(self):
         pty_input = None
         stdin = subprocess.PIPE
 
-    p = subprocess.Popen(procX, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=posix_mode) # shell=True has no effect?
+    p = subprocess.Popen(which_proc_plus_args, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=posix_mode) # shell=True has no effect?
 
     def _stdouterr_f(is_err):
         p_std = p.stderr if is_err else p.stdout
@@ -216,6 +213,7 @@ def _init_paramiko(self):
     #https://stackoverflow.com/questions/55762006/what-is-the-difference-between-exec-command-and-send-with-invoke-shell-on-para
     #https://stackoverflow.com/questions/40451767/paramiko-recv-ready-returns-false-values
     #https://gist.github.com/kdheepak/c18f030494fea16ffd92d95c93a6d40d
+    proc_type=self.proc_type; proc_args=self.proc_args; binary_mode=self.binary_mode
     import paramiko
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy()) # Being permissive is quite a bit easier...
@@ -243,7 +241,8 @@ def _init_paramiko(self):
     #chan = client.get_transport().open_session() #TODO: what does this do and is it needed?
     self._close = lambda self: client.close()
 
-def _init_core(self, proc_type, proc_args=None, binary_mode=False):
+def _init_core(self):
+
     self.send_f = None # Send strings OR bytes.
     self.stdout_f = None # Returns an empty bytes if there is nothing to get.
     self.stderr_f = None
@@ -253,12 +252,14 @@ def _init_core(self, proc_type, proc_args=None, binary_mode=False):
     self._close = None
     self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
 
+    proc_type = self.proc_type
     if proc_type == 'shell':
-        _init_terminal(self)
+        terminal = 'cmd' if os.name=='nt' else 'bash'
+        _init_local_subprocess(self, terminal)
     elif proc_type == 'ssh' or proc_type == 'paramiko':
         _init_paramiko(self)
     else: # TODO: more kinds of pipes.
-        raise Exception('proc_type must be "shell" or "ssh"')
+        _init_local_subprocess(self, proc_type)
 
     if self.stdout_f is None or self.stderr_f is None:
         raise Exception('stdout_f and/or stderr_f not set.')
@@ -295,7 +296,7 @@ class MessyPipe:
         # Will raise some sort of paramiko Exception if the pipe isn't ready yet.
         if self.is_init:
             return
-        _init_core(self, proc_type=self.proc_type, proc_args=self.proc_args, binary_mode=self.binary_mode)
+        _init_core(self)
 
     def __init__(self, proc_type, proc_args=None, printouts=True, binary_mode=False):
         # Defers creation of the pipe; creation can cause errors if done before i.e. a reboot is complete.
@@ -308,6 +309,7 @@ class MessyPipe:
         self.proc_type = proc_type
         self.proc_args = proc_args
         self.loop_err = None
+        self.proc_path = proc_path
         self.packets = [[b'' if binary_mode else '', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
 
         self.machine_id = None # Optional user data.
