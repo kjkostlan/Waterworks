@@ -45,15 +45,15 @@ def abs_path(fname, use_orig_working_directory=False):
             raise Exception('Assert failed: Output path not absolute but in this code.')
         return out
 
-def rel_path(fname):
+def rel_path(fname, use_orig_working_directory=False):
     # Relative path (NOT realpath, which is an absolute path!).
     # Will default to abs_path if not inside the current working directory (less messy than double dots).
-    a = abs_path(fname)
-    ph = abs_path(os.path.dirname(os.path.realpath(__file__))) #https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
-    nthis_folder = len(ph)
+    a = abs_path(fname, use_orig_working_directory)
+    ph = abs_path('.', use_orig_working_directory)
+    n = len(ph)
 
     if ph in a:
-        return ('./'+a[nthis_folder:]).replace('//','/')
+        return ('./'+a[n:]).replace('//','/')
     else:
         return a
 
