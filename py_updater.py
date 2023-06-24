@@ -1,4 +1,4 @@
-import sys, importlib, time
+import os, sys, importlib, time
 from . import file_io, modules, fittings
 import proj
 
