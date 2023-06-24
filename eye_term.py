@@ -155,7 +155,7 @@ def pipe_loop(tubo, is_err): # For ever watching... untill the thread gets close
 def _init_local_subprocess(self, which_proc):
     #https://stackoverflow.com/questions/375427/a-non-blocking-read-on-a-subprocess-pipe-in-python/4896288#4896288
     #https://stackoverflow.com/questions/156360/get-all-items-from-thread-queue
-    import subprocess, pty
+    import subprocess
     proc_args=self.proc_args; binary_mode=self.binary_mode
 
     if proc_args is None:
@@ -172,13 +172,18 @@ def _init_local_subprocess(self, which_proc):
     use_pty = False # Why does pexpect work so much better than vanilla? Is this the secret sauce? But said sauce is hard to use, thus it's False for now.
     #https://gist.github.com/thomasballinger/7979808
     if use_pty:
+        import pty
         peacock, tail = pty.openpty(); stdin=tail
         pty_input = os.fdopen(peacock, 'w')
     else:
         pty_input = None
         stdin = subprocess.PIPE
 
-    p = subprocess.Popen(which_proc_plus_args, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=posix_mode) # shell=True has no effect?
+    kwargs = {'stdin':stdin, 'stdout':subprocess.PIPE, 'stderr':subprocess.PIPE} # 'close_fds':Bool 'shell':True 'bufsize':0
+    if self.init_working_dir is not None: # Start the process in a different directory, if specified.
+        kwargs['cwd'] = self.init_working_dir
+    #print('which_proc_plus_args:', which_proc_plus_args, kwargs)
+    p = subprocess.Popen(which_proc_plus_args, **kwargs) # shell=True has no effect?
 
     def _stdouterr_f(is_err):
         p_std = p.stderr if is_err else p.stdout
@@ -252,13 +257,15 @@ def _init_core(self):
     self._close = None
     self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
 
-    proc_type = self.proc_type
+    proc_type = self.proc_type.lower().strip()
+    if proc_type == 'python' and self.init_working_dir is None:
+        raise Exception('Python subprocess with no initial working dir specified; unlikely use case.')
     if proc_type == 'shell':
         terminal = 'cmd' if os.name=='nt' else 'bash'
         _init_local_subprocess(self, terminal)
     elif proc_type == 'ssh' or proc_type == 'paramiko':
         _init_paramiko(self)
-    else: # TODO: more kinds of pipes.
+    else: # TODO: more kinds of pipes, not just to default all pipes.
         _init_local_subprocess(self, proc_type)
 
     if self.stdout_f is None or self.stderr_f is None:
@@ -297,8 +304,9 @@ class MessyPipe:
         if self.is_init:
             return
         _init_core(self)
+        self.is_init = True # Should be set True by _init_core also.
 
-    def __init__(self, proc_type, proc_args=None, printouts=True, binary_mode=False):
+    def __init__(self, proc_type, proc_args=None, printouts=True, binary_mode=False, working_dir=None):
         # Defers creation of the pipe; creation can cause errors if done before i.e. a reboot is complete.
         # the plumber class deals with such erros but needs a MessyPipe object.
         self.lock = threading.Lock()
@@ -309,11 +317,12 @@ class MessyPipe:
         self.proc_type = proc_type
         self.proc_args = proc_args
         self.loop_err = None
-        self.proc_path = proc_path
+        self.init_working_dir = working_dir
         self.packets = [[b'' if binary_mode else '', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
 
         self.machine_id = None # Optional user data.
         self.restart_fn = None # Optional fn allowing any server to be restarted.
+        # The core init function is deferred untill one calls ensure_init or sends/listens to commands.
 
     def blit(self, include_history=True):
         # Mash the output and error together.

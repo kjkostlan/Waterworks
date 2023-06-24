@@ -89,6 +89,7 @@ def utf8_one_char(read_bytes_fn):
     # One unicode char may be multible bytes, but if so the first n-1 bytes are not valid single byte chars.
     # See: https://en.wikipedia.org/wiki/UTF-8.
     # TODO: consider: class io.TextIOWrapper(buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False)
+    #  See: https://stackoverflow.com/questions/18727282/read-subprocess-output-multi-byte-characters-one-by-one
     bytes = read_bytes_fn(1)
     while True:
         try:

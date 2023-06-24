@@ -84,6 +84,12 @@ def recursive_files(fname, include_folders=False, filter_fn=None, max_folder_dep
         else:
             return []
 
+def folder_file(fname):
+    # Splits into absolute folder and file.
+    fname = abs_path(fname)
+    pieces = fname.split('/')
+    return '/'.join(pieces[0]), pieces[-1]
+
 #################################Loading########################################
 
 def date_mod(fname):
