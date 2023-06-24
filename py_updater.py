@@ -223,9 +223,6 @@ def src_cache_diff(old_cache, new_cache=None):
     for k in new_cache.keys():
         if new_cache[k] != old_cache.get(k,None):
             out[k] = new_cache[k]
-    for k in old_cache.keys():
-        if k[0]=='/':
-            raise Exception('Absolute-like filepath in the src cache (bug in this function).')
     return out
 
 def unpickle64_and_update(txt64, update_us=True, update_vms=True):
