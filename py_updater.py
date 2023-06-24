@@ -211,10 +211,8 @@ def src_cache_from_disk():
                 fname2contents[fnamer] = file_io.fload(fnamer)
     return fname2contents
 
-def src_cache_diff(old_cache=None, new_cache=None):
+def src_cache_diff(old_cache, new_cache=None):
     # Changed file local path => contents; deleted files map to None
-    if old_cache is None:
-        old_cache = _src_cache
     if new_cache is None:
         new_cache = src_cache_from_disk()
 
@@ -230,17 +228,11 @@ def src_cache_diff(old_cache=None, new_cache=None):
             raise Exception('Absolute-like filepath in the src cache (bug in this function).')
     return out
 
-def update_src_cache(new_cache=None): # Also returns which modules changed (only modules which were already in module_fnames).
-    if new_cache is None:
-        new_cache = src_cache_from_disk()
-    for k in list(_src_cache.keys()):
-        del _src_cache[k]
-    for k in new_cache.keys():
-        _src_cache[k] = new_cache[k]
-
 def unpickle64_and_update(txt64, update_us=True, update_vms=True):
+    old_cache = src_cache_from_disk()
     file_io.disk_unpickle64(txt64)
-    delta = src_cache_diff()
+    new_cache = src_cache_from_disk()
+    delta = src_cache_diff(old_cache, new_cache)
     if update_us:
         update_python_interp(delta)
     if update_vms:
@@ -248,5 +240,4 @@ def unpickle64_and_update(txt64, update_us=True, update_vms=True):
             import vm # delay the import because install_core has to run as standalone for fresh installs.
             vm.update_vms_skythonic(delta)
         except ModuleNotFoundError:
-            print('Cant update the vms because vm hasent been downloaded yet.')
-    update_src_cache()
+            print("Not in a project that uses Skythonic's vm module, skipping this step.")
