@@ -1,6 +1,7 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term, ptools
+from . import eye_term
+from . import plumber_tools as ptools
 
 def default_prompts():
     # Default line end prompts and the needed input (str or function of the pipe).
