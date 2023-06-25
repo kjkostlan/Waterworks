@@ -344,7 +344,7 @@ class MessyPipe:
             if len(_outerr)>0:
                 txt = _boring_txt(_outerr)
                 with self.lock: # Does this prevent interleaving out and err prints?
-                    colorful.wrapprint(txt, end='') # Newlines should be contained within the feed so there is no need to print them directly.
+                    colorful.wrapprint(txt) # Newlines should be contained within the feed so there is no need to print them directly.
         with self.lock:
             if len(_outerr)>0:
                 ix = 2 if is_std_err else 1
