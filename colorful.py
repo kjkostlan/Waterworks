@@ -41,7 +41,6 @@ def wrapprint(*txt):
     lines = txt.split('\n')
     p = palette[lev%len(palette)]
     out = []
-    lines1 = [p+'('+'\x1b[0m'+line+p+')'+'\x1b[0m' for line in lines]
-    for line1 in lines1:
-        print(line1)
-    return '\n'.join(lines1)
+    txt1 = '\n'.join([p+'('+'\x1b[0m'+line+p+')'+'\x1b[0m' for line in lines])
+    print(txt1, end='')
+    return txt1

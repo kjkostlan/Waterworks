@@ -36,6 +36,9 @@ class Sbuild:
             self.vals = [out]
             return out
 
+    def __str__(self):
+        return str(self.val())
+
 ######################Small functions######################################
 
 def non_empty_lines(txt):
@@ -132,7 +135,7 @@ class ThreadSafeList(): # TODO: deprecated.
             self._list = []
             return out
 
-def pipe_loop(tubo, is_err): # For ever watching... untill the thread gets closed.
+def pipe_update_loop(tubo, is_err): # For ever watching... untill the thread gets closed.
     dt0 = 0.001
     dt1 = 2.0
     dt = dt0
@@ -144,6 +147,17 @@ def pipe_loop(tubo, is_err): # For ever watching... untill the thread gets close
             tubo.loop_err = e # Gets thrown during the blit stage.
         time.sleep(dt)
         dt = min(dt1, dt*1.414)
+
+def pipe_print_loop(tubo):
+    while True:
+        if tubo.printouts:
+            if len(str(tubo.print_buf))>0:
+                with tubo.lock: # Does this prevent interleaving out and err prints?
+                    colorful.wrapprint(str(tubo.print_buf)) # Newlines should be contained within the feed so there is no need to print them directly.
+                    tubo.print_buf = Sbuild(False)
+        time.sleep(tubo.print_dt)
+        if tubo.closed:
+            break
 
 ################################Which-pipe specific fns###############################
 
@@ -249,7 +263,8 @@ def _init_core(self):
     self._streams = None # Mainly used for debugging.
     self.remove_control_chars = rm_ctrl_chars_default # **Only on printing** Messier but should prevent terminal upsets.
     self._close = None
-    self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
+    self.loop_threads =[threading.Thread(target=pipe_update_loop, args=[self, False]), threading.Thread(target=pipe_update_loop, args=[self, True]),
+                        threading.Thread(target=pipe_print_loop, args=[self])]
 
     proc_type = self.proc_type.lower().strip()
     if proc_type == 'python' and self.init_working_dir is None:
@@ -316,6 +331,9 @@ class MessyPipe:
 
         self.machine_id = None # Optional user data.
         self.restart_fn = None # Optional fn allowing any server to be restarted.
+
+        self.print_buf = Sbuild(False) #Only filled if printouts=True
+        self.print_dt = 0.125 # If update dribbles out info character-by-character this prevents excessive print calls.
         # The core init function is deferred untill one calls ensure_init or sends/listens to commands.
 
     def blit(self, include_history=True):
@@ -335,22 +353,19 @@ class MessyPipe:
 
     def update(self, is_std_err): # Returns the len of the data.
         def _boring_txt(txt):
-            txt = txt.replace('\r\n','\n')
+            txt = str(txt).replace('\r\n','\n')
             if self.remove_control_chars:
                 txt = remove_control_chars(txt, True)
             return txt
         _outerr = self.stderr_f() if is_std_err else self.stdout_f()
-        if self.printouts:
-            if len(_outerr)>0:
-                txt = _boring_txt(_outerr)
-                with self.lock: # Does this prevent interleaving out and err prints?
-                    colorful.wrapprint(txt) # Newlines should be contained within the feed so there is no need to print them directly.
         with self.lock:
             if len(_outerr)>0:
+                txt = _boring_txt(_outerr)
+                self.print_buf.add(txt)
                 ix = 2 if is_std_err else 1
                 self.packets[-1][ix].add(_outerr)
                 self.packets[-1][4] = time.time() # Either stdout or stderr.
-            return len(_outerr)
+        return len(_outerr)
 
     def drought_len(self):
         # How long since neither stdout nor stderr spoke to us.
@@ -422,7 +437,7 @@ class MessyPipe:
 
     def assert_no_loop_err(self):
         if self.loop_err:
-            print('Polling loop exception:')
+            print('Polling loop exception:', self.loop_err)
             raise self.loop_err
 
     def multi_API(self, cmds, f_polls=None, timeout=8):
