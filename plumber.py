@@ -1,6 +1,6 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term
+from . import eye_term, colorful
 from . import plumber_tools as ptools
 
 def default_prompts():
@@ -147,7 +147,7 @@ class Plumber():
         slow = time.time() - self.last_restart_time > 90
         if (slow and n >= 3) or (not_pipe_related and n>8):
             if self.tubo.printouts:
-                eye_term.bprint('Installation may be stuck in a loop, restarting machine')
+                colorful.bprint('Installation may be stuck in a loop, restarting machine')
             self.restart_vm()
 
     def send_cmd(self, _cmd, add_to_packets=True):
@@ -157,7 +157,7 @@ class Plumber():
         except Exception as e:
             self.pipe_fix_fn = self._sshe(e)
             if self.tubo.printouts:
-                eye_term.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
+                colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
 
     def restart_vm(self, raise_max_restart_error=True):
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
@@ -278,7 +278,7 @@ class Plumber():
         except Exception as e:
             self.pipe_fix_fn = self._sshe(e)
             if self.tubo.printouts:
-                eye_term.bprint('Init the pipe failed b/c:', str(e), '. It may not be ready yet.\n')
+                colorful.bprint('Init the pipe failed b/c:', str(e), '. It may not be ready yet.\n')
         if self.pipe_fix_fn is not None:
             # Attempt to pipe_fix_fn, but the fn itself may cause an error (i.e. waiting for a vm to restart).
             try:
@@ -291,12 +291,12 @@ class Plumber():
                 elif self.tubo.closed:
                     raise Exception('The remedy fn returned a closed MessyPipe.')
                 if self.tubo.printouts:
-                    eye_term.bprint('Ran remedy to fix pipe\n')
+                    colorful.bprint('Ran remedy to fix pipe\n')
                 self.pipe_fix_fn = None
             except Exception as e:
                 self.pipe_fix_fn = self._sshe(e)
                 if self.tubo.printouts:
-                    eye_term.bprint('Running remedy failed b/c of:', str(e), '. This may be b/c the machine is rebooting, etc. Will run remedy for remedy.\n')
+                    colorful.bprint('Running remedy failed b/c of:', str(e), '. This may be b/c the machine is rebooting, etc. Will run remedy for remedy.\n')
 
         if not self.short_wait():
             return False

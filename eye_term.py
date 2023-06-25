@@ -6,7 +6,7 @@
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
 import proj
-from . import fittings
+from . import fittings, colorful
 
 _glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
@@ -37,11 +37,6 @@ class Sbuild:
             return out
 
 ######################Small functions######################################
-
-def bprint(*txt):
-    # Use our own color to differentiate from the data dump that is the ssh/bash stream.
-    txt = ' '.join([str(t) for t in txt])
-    print('\033[94m'+txt+'\033[0m', end='')
 
 def non_empty_lines(txt):
     txt = txt.replace('\r\n','\n').strip()
@@ -252,7 +247,6 @@ def _init_core(self):
     self.stdout_f = None # Returns an empty bytes if there is nothing to get.
     self.stderr_f = None
     self._streams = None # Mainly used for debugging.
-    self.color = 'linux'
     self.remove_control_chars = rm_ctrl_chars_default # **Only on printing** Messier but should prevent terminal upsets.
     self._close = None
     self.loop_threads =[threading.Thread(target=pipe_loop, args=[self, False]), threading.Thread(target=pipe_loop, args=[self, True])]
@@ -350,7 +344,7 @@ class MessyPipe:
             if len(_outerr)>0:
                 txt = _boring_txt(_outerr)
                 with self.lock: # Does this prevent interleaving out and err prints?
-                    print(txt, end='') # Newlines should be contained within the feed so there is no need to print them directly.
+                    colorful.wrapprint(txt, end='') # Newlines should be contained within the feed so there is no need to print them directly.
         with self.lock:
             if len(_outerr)>0:
                 ix = 2 if is_std_err else 1
@@ -371,14 +365,11 @@ class MessyPipe:
         if self.closed:
             raise Exception('The pipe has been closed and cannot accept commands; use pipe.remake() to get a new, open pipe.')
         if self.printouts and not suppress_input_prints:
-            if self.color=='linux':
-                #https://stackoverflow.com/questions/287871/how-do-i-print-colored-text-to-the-terminal
-                if add_to_packets:
-                    print('\x1b[0;33;40m'+'→'+'\x1b[6;30;42m'+txt+'\x1b[0;33;40m'+'←'+'\x1b[0m')
-                else:
-                    print('\x1b[0;33;40m'+'→'+'\033[97;104m'+txt+'\x1b[0;33;40m'+'←'+'\x1b[0m')
+            #https://stackoverflow.com/questions/287871/how-do-i-print-colored-text-to-the-terminal
+            if add_to_packets:
+                colorful.arrowprint(txt)
             else:
-                print('→'+txt+'←')
+                colorful.arrowprint1(txt)
         if add_to_packets:
             self.packets.append([txt, Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()])
         self.send_f(txt, include_newline=include_newline)
@@ -414,11 +405,7 @@ class MessyPipe:
             td = self.drought_len()
             if self.printouts:
                 if td>min(6, 0.75*timeout):
-                    if self.color=='linux':
-                        # Colors: https://misc.flogisoft.com/bash/tip_colors_and_formatting
-                        print('\x1b[0;33;40m'+f'{td} seconds has elapsed with dry pipes.'+'\x1b[0m')
-                    else:
-                        print(f'{td} seconds has elapsed with dry pipes.')
+                    colorful.oprint(f'{td} seconds has elapsed with dry pipes.')
             if timeout is not None and td>timeout:
                 raise Exception(f'API timeout on cmd {txt}; ')
 
