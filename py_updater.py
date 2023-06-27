@@ -1,17 +1,9 @@
 import os, sys, importlib, time
-from . import file_io, modules, fittings
+from . import file_io, modules, fittings, var_watch, pparse
 import proj
 
 uglobals = proj.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
-
-try:
-    Slitherlisp_integration # use var_watch.add_pyupdate_callbacks(this_module) from this package.
-except:
-    Slitherlisp_integration = None
-    record_txt_update_fn = None
-    just_after_module_callback = None
-    get_vars_fn = None
 
 class ModuleUpdate:
     # How to look up var from id:
@@ -51,7 +43,7 @@ def get_user_paths():
 def _fupdate(fname, modulename):
     if modulename=='proj':
         raise Exception('No nice way to update proj; restart program recommended.')
-    old_vars = get_vars_fn(modulename) if get_vars_fn is not None else {}
+    old_vars = ppatch.get_vars(modulename)
     fname = file_io.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
@@ -59,16 +51,16 @@ def _fupdate(fname, modulename):
     new_txt = file_io.fload(fname)
     if fname in uglobals['filecontents']:
         old_txt = uglobals['filecontents'][fname]
-        if old_txt != new_txt and record_txt_update_fn is not None:
+        if old_txt != new_txt:
             if old_txt is None:
                 raise Exception('None old_text; files should be preloaded.')
-            record_txt_update_fn(modulename, fname, fittings.txt_edit(old_txt, new_txt))
+            var_watch.record_txt_update(modulename, fname, fittings.txt_edit(old_txt, new_txt))
     else:
         old_txt = None
     uglobals['filecontents'][fname] = new_txt
     uglobals['filemodified'][fname] = time.time() # Does date modified use the same as our own time?
 
-    new_vars = get_vars_fn(modulename) if get_vars_fn is not None else {}
+    new_vars = ppatch.get_vars(modulename)
 
     out = ModuleUpdate(modulename, old_txt, new_txt, old_vars, new_vars)
     uglobals['varflush_queue'].append(out)
@@ -114,8 +106,7 @@ def update_one_module(modulename, fname=None, assert_main=True):
     print('Updating MODULE:', modulename, fname)
 
     out = _fupdate(fname, modulename)
-    if just_after_module_callback is not None:
-        just_after_module_callback(modulename)
+    var_watch.just_after_module_update(modulename)
     return out
 
 def update_user_changed_modules(update_on_first_see=True, use_date=False):
