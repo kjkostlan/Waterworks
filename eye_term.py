@@ -191,7 +191,6 @@ def _init_local_subprocess(self, which_proc):
     kwargs = {'stdin':stdin, 'stdout':subprocess.PIPE, 'stderr':subprocess.PIPE} # 'close_fds':Bool 'shell':True 'bufsize':0
     if self.init_working_dir is not None: # Start the process in a different directory, if specified.
         kwargs['cwd'] = self.init_working_dir
-    #print('which_proc_plus_args:', which_proc_plus_args, kwargs)
     p = subprocess.Popen(which_proc_plus_args, **kwargs) # shell=True has no effect?
 
     def _stdouterr_f(is_err):
@@ -215,7 +214,10 @@ def _init_local_subprocess(self, which_proc):
             if type(x) is str: # Bash subprocesses always take binary bytes?
                 x = x.encode()
             p.stdin.write(x)
-            p.stdin.flush()
+            try:
+                p.stdin.flush() # Is this even needed?
+            except Exception as e:
+                pass
     self.send_f = _send
 
     self.stdout_f = lambda: _stdouterr_f(False)

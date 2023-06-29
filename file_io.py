@@ -88,7 +88,7 @@ def folder_file(fname):
     # Splits into absolute folder and file.
     fname = abs_path(fname)
     pieces = fname.split('/')
-    return '/'.join(pieces[0]), pieces[-1]
+    return '/'.join(pieces[0:-1]), pieces[-1]
 
 #################################Loading########################################
 

@@ -1,5 +1,5 @@
 import os, sys, importlib, time
-from . import file_io, modules, fittings, var_watch, pparse
+from . import file_io, modules, fittings, var_watch, ppatch
 import proj
 
 uglobals = proj.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
