@@ -192,6 +192,7 @@ def _init_local_subprocess(self, which_proc):
     if self.init_working_dir is not None: # Start the process in a different directory, if specified.
         kwargs['cwd'] = self.init_working_dir
     p = subprocess.Popen(which_proc_plus_args, **kwargs) # shell=True has no effect?
+    self.proc_obj = p
 
     def _stdouterr_f(is_err):
         p_std = p.stderr if is_err else p.stdout
@@ -214,10 +215,11 @@ def _init_local_subprocess(self, which_proc):
             if type(x) is str: # Bash subprocesses always take binary bytes?
                 x = x.encode()
             p.stdin.write(x)
-            try:
-                p.stdin.flush() # Is this even needed?
-            except Exception as e:
-                pass
+            if self.flush_stdin: # Is this even needed? Can it cause errors sometimes?
+                try:
+                    p.stdin.flush()
+                except Exception as e:
+                    pass
     self.send_f = _send
 
     self.stdout_f = lambda: _stdouterr_f(False)
@@ -329,6 +331,7 @@ class MessyPipe:
         self.proc_args = proc_args
         self.loop_err = None
         self.init_working_dir = working_dir
+        self.proc_obj = None
         self.packets = [[b'' if binary_mode else '', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
 
         self.machine_id = None # Optional user data.
@@ -336,22 +339,31 @@ class MessyPipe:
 
         self.print_buf = Sbuild(False) #Only filled if printouts=True
         self.print_dt = 0.125 # If update dribbles out info character-by-character this prevents excessive print calls.
+        self.flush_stdin = True
         # The core init function is deferred untill one calls ensure_init or sends/listens to commands.
 
-    def blit(self, include_history=True):
-        # Mash the output and error together.
+    def blit(self, include_history=True, stdout=True, stderr=True):
+        # Blits everything in the stream, option to only use everything since last output.
         self.assert_no_loop_err()
         with self.lock:
             if include_history:
                 if self.binary_mode:
                     out = b''
                     for pak in self.packets:
-                        out.extend(pak[1].val()+pak[2].val())
+                        if stdout:
+                            out.extend(pak[1].val())
+                        if stderr:
+                            out.extend(pak[2].val())
                     return out
                 else:
-                    return ''.join([pk[1].val()+pk[2].val() for pk in self.packets])
+                    return ''.join([(pk[1].val() if stdout else '')+(pk[2].val() if stderr else '') for pk in self.packets])
             else:
-                return self.packets[-1][1].val()+self.packets[-1][2].val()
+                out = b'' if self.binary_mode else ''
+                if stdout:
+                    out = out+self.packets[-1][1].val()
+                if stderr:
+                    out = out+self.packets[-1][2].val()
+                return out
 
     def update(self, is_std_err): # Returns the len of the data.
         def _boring_txt(txt):
