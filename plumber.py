@@ -1,7 +1,12 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term, colorful
+from . import eye_term, colorful, err_prop
 from . import plumber_tools as ptools
+
+try:
+    interactive_error_mode # Debug tool.
+except:
+    interactive_error_mode = False
 
 def default_prompts():
     # Default line end prompts and the needed input (str or function of the pipe).
@@ -80,16 +85,18 @@ def manual_labor(plumber):
         except Exception as e:
             print('Error:', e)
 
-def interactive_error(plumber, e):
+def maybe_interactive_error(plumber, e):
     # Lets the user manually input the error.
     print('Plumber encountered an error that should be debugged:')
     print('\n'.join(traceback.format_exception(e)))
     print(f"\033[38;2;255;255;0;48;2;0;0;139mError: {e}; entering interactive debug session.\033[0m")
-    x = manual_labor(plumber)
+    x = interactive_error_mode and manual_labor(plumber)
     if x:
         plumber.num_restarts = 0; plumber.rcounts_since_restart = {} # Reset this.
     else:
-        raise e
+        find_errors_here = '\n'.join([tubo.blit() for tubo in plumber.tubo_history]) # Sometimes stderr can go into stdout, so a total blit is OK.
+        msg = err_prop.stderr2verbose_message(find_errors_here, compress_multible=True, helpful_id=plumber.tubo.machine_id)
+        err_prop.raise_from_message(err_prop.concat(msg, e))
 
 class Plumber():
     def __init__(self, tubo, packages, response_map, other_cmds, test_pairs, fn_override=None, dt=2.0):
@@ -115,7 +122,7 @@ class Plumber():
         self.fn_override = fn_override
         self.cmd_history = []
         self.tubo = tubo
-        self.tubo_history = [tubo]
+        self.tubo_history = [tubo] # Always includes the current tubo.
         self.nsteps = 0
 
         self.remaining_packages = list(packages)
@@ -134,7 +141,7 @@ class Plumber():
         e_txt = str(e)+' '+str(type(e))
         fix_f = ptools.ssh_error(e_txt, self.cmd_history)
         if fix_f is None: # Only errors which can be thrown by ssh unreliabilities aren't thrown.
-            interactive_error(self, e)
+            maybe_interactive_error(self, e)
         return fix_f
 
     def _restart_if_too_loopy(self, k, not_pipe_related=None):
@@ -162,7 +169,7 @@ class Plumber():
     def restart_vm(self, raise_max_restart_error=True):
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
         if raise_max_restart_error and self.num_restarts==self.max_restarts:
-            interactive_error(self, Exception('Max restarts exceeded, there appears to be an infinite loop that cant be broken.'))
+            maybe_interactive_error(self, Exception('Max restarts exceeded, there appears to be an infinite loop that cant be broken.'))
         self.tubo.restart_fn()
         self.rcounts_since_restart = {}
         self.last_restart_time = time.time()

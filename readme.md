@@ -11,3 +11,6 @@ Other features:
 3. Simplified module path handling, for example to import Python code from an external folder.
 4. More convenient file_io functions.
 5. Basic IP address wrangling features. This does NOT include creating/destroying vm and other heavy cloud operations. Skythonic does that.
+
+
+Note: Most tests for this package are in Skythonic and Termpylus; implementing direct tests here may not be worth it given how much this project interfaces with the external world.

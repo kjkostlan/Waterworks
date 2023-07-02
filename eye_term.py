@@ -6,7 +6,7 @@
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
 import proj
-from . import fittings, colorful
+from . import fittings, colorful, err_prop
 
 _glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
@@ -161,6 +161,13 @@ def pipe_print_loop(tubo):
 
 ################################Which-pipe specific fns###############################
 
+def _pipe_error(tubo, ex_obj):
+    msg = err_prop.stderr2verbose_message(tubo.blit(), compress_multible=True, helpful_id=plumber.tubo.machine_id)
+    if msg is None:
+        err_prop.raise_from_message(ex_obj)
+    else:
+        err_prop.raise_from_message(err_prop.concat(msg, ex_obj))
+
 def _init_local_subprocess(self, which_proc):
     #https://stackoverflow.com/questions/375427/a-non-blocking-read-on-a-subprocess-pipe-in-python/4896288#4896288
     #https://stackoverflow.com/questions/156360/get-all-items-from-thread-queue
@@ -219,7 +226,7 @@ def _init_local_subprocess(self, which_proc):
                 try:
                     p.stdin.flush()
                 except Exception as e:
-                    pass
+                    raise Exception('Flush stdin failed, likely due to a closed subprocess.')
     self.send_f = _send
 
     self.stdout_f = lambda: _stdouterr_f(False)
@@ -332,6 +339,7 @@ class MessyPipe:
         self.loop_err = None
         self.init_working_dir = working_dir
         self.proc_obj = None
+        self.reported_name = reported_name
         self.packets = [[b'' if binary_mode else '', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
 
         self.machine_id = None # Optional user data.
@@ -488,4 +496,6 @@ class MessyPipe:
         out = MessyPipe(proc_type=self.proc_type, proc_args=self.proc_args, printouts=self.printouts, binary_mode=self.binary_mode)
         out.machine_id = self.machine_id
         out.restart_fn = self.restart_fn
+        out.print_dt = self.print_dt
+        out.flush_stdin = self.flush_stdin
         return out
