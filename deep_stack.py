@@ -23,6 +23,13 @@ def _basic_txt(x):
 
 def remove_greebles(msg):
     msg = _basic_txt(msg)
+    lines = msg.split('\n')
+    lines1 = []
+    for l in lines:
+        l = l.strip()
+        if len(l)>0:
+            lines1.append(l)
+    msg = '\n'.join(lines1)
     return msg.replace(_head,'').replace(_tail,'').replace(_linehead,'').strip()
 
 def add_greebles(txt):
@@ -31,6 +38,13 @@ def add_greebles(txt):
     txt = remove_greebles(txt)
     lines = _basic_txt(txt).split('\n')
     return '\n'.join([_head]+[_linehead+l for l in lines]+[_tail])
+
+def pprint(msg):
+    msg = _basic_txt(str(msg))
+    msg = remove_greebles(msg)
+    lines = ['   '+l for l in msg.split('\n')]
+
+    return '\n'.join(['Deep Traceback:']+lines)
 
 ################################# Stream concat ################################
 
@@ -112,7 +126,7 @@ def from_greebled_stderr(stderr_blit, compress_multible=False):
 def from_vanilla_stderr(stderr_blit, compress_multible=False):
     # Vanilla exceptions
     err_ky = 'Traceback (most recent call last)'
-    pieces = ('tmp_header\n'+_basic_txt(stderr_blit)).split(err_ky)
+    pieces = ('tmp_header_I_want_to_be_excised\n'+_basic_txt(stderr_blit)).split(err_ky)
     if len(pieces)==1:
         return None
     for i in range(1, len(pieces)):
@@ -138,16 +152,15 @@ def from_vanilla_stderr(stderr_blit, compress_multible=False):
         lines2 = _squish_lines([err_ky]+lines1)
         pieces[i] = '\n'.join(lines2)
 
-    blocks1 = _block_compress(pieces[1:]) if compress_multible else pieces
+    blocks1 = _block_compress(pieces[1:]) if compress_multible else pieces[1:]
     return add_greebles('\n'.join(blocks1))
-
 
 def from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=None):
     # Picks out error messages from a stream; optional helpful_id which will be prepended.
     # Returns None if no error is found.
     greeble_mode = from_greebled_stderr(stdout_blit+'\n'+stderr_blit, compress_multible=compress_multible)
     out = None
-    if err_str: # Case 1: A verbose error was raised or printed out; supposed to stderr but many people send errors to stdout instead:
+    if greeble_mode: # Case 1: A verbose error was raised or printed out; supposed to stderr but many people send errors to stdout instead:
         # This is a strong error report, so it is safer to suppress the "vanilla" case below
         out = greeble_mode
     else: # Case 2: Stderr output with a vanilla Exception. Will ignore stdout (Python sends raised exceptions to stderr)
@@ -157,12 +170,8 @@ def from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=No
 
 ########################### Exception handling #################################
 
-class VerboseError(Exception):
-    # Verbose = Stack trace is in the message.
-    def pprint(self):
-        # Pretty-print a verbose exception (by converting the message into multiline text).
-        # Will include a traceback.
-        print(remove_greebles('VerboseErrorTrace\n'+str(self)))
+class VerboseError(Exception): # Verbose = Stack trace is in the message.
+    pass
 
 def raise_from_message(stack_message):
     raise VerboseError(_basic_txt(stack_message))
