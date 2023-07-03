@@ -94,6 +94,13 @@ def _squish_lines(lines):
             lines2[-1] = (lines2[-1]+': '+_line).strip()
     return lines2+[lines[-1].strip()] # No need to include the first line which says "Traceback"
 
+def from_cur_stack(): # Does not include the frame inside deep_stack.py
+    lines = list(traceback.format_stack())
+    lines = [l.replace('\r','').replace('\n',' ').replace('\t',' ') for l in lines]
+    lines = [' '.join(l.split()) for l in lines]
+    lines = lines[0:-1]
+    return '\n'.join(lines)
+
 def from_exception(e):
     # Gets the verbose error message from an exception object.
     if type(e) is VerboseError:
