@@ -24,15 +24,13 @@ palette = ["\x1b[38;5;196m", "\x1b[38;5;220m", "\x1b[38;5;185m", "\x1b[38;5;40m"
 def _color_paren_nest_level(txt):
     txt = txt.strip().replace('\r\n','\n')
     line0 = txt.split('\n')[0]
-    paren0 = len(line0.replace('(', ''))-len(line0)
+    _cx = 2543
+    line0 = line0.replace(chr(_cx),'')
     for p in palette:
-        line0 = line0.replace(p+'(', '')
-    paren1 = len(line0.replace('(', ''))-len(line0)
-    return paren0-paren1
+        line0 = line0.replace(p+'(', chr(_cx))
+    return len(line0)-len(line0.replace(chr(_cx), ''))
 
-def wrapprint(*txt):
-    # Adds one more nested paren level to each line.
-    txt = ' '.join([str(t) for t in txt])
+def wrap(txt):
     try: # If this fails keep going.
         lev = _color_paren_nest_level(txt)
     except:
@@ -42,5 +40,18 @@ def wrapprint(*txt):
     p = palette[lev%len(palette)]
     out = []
     txt1 = '\n'.join([p+'('+'\x1b[0m'+line+p+')'+'\x1b[0m' for line in lines])
+    return txt1
+
+def unwrap_all(txt):
+    # Undoes wrapprint, if wrapped in the first place.
+    for p in palette:
+        txt = txt.replace(p+'('+'\x1b[0m','')
+        txt = txt.replace(p+')'+'\x1b[0m','')
+    return txt
+
+def wrapprint(*txt):
+    # Adds one more nested paren level to each line.
+    txt = ' '.join([str(t) for t in txt])
+    txt1 = wrap(txt)
     print(txt1, end='')
     return txt1

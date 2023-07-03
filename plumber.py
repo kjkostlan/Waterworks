@@ -1,6 +1,6 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term, colorful, err_prop
+from . import eye_term, colorful, deep_stack
 from . import plumber_tools as ptools
 
 try:
@@ -23,18 +23,6 @@ def default_prompts():
             'Continue [yN]':'Y', 'To continue please press [ENTER]':'\n', # the '\n' actually presses enter twice b/c linefeeds are added.
             'continue connecting (yes/no)?':'Y',
             'Which services should be restarted?':_super_advanced_linux_shell()}
-
-#def _restart_parent(tubo):
-#    # More robust against TODO
-#    tubo.close()
-#    t0 = time.time()
-#    restart_vm(tubo.machine_id)
-#    time.sleep(1.5)
-#    tubo = tubo.remake()
-#    t1 = time.time()
-#    if t1-t0 < 8:
-#        raise Exception(f'The restart happened too fast ({t1-t0} s), maybe it was short-circuted?')
-#    return tubo
 
 def loop_try(f, f_catch, msg, delay=4):
     # Waiting for something? Keep looping untill it succedes!
@@ -94,9 +82,12 @@ def maybe_interactive_error(plumber, e):
     if x:
         plumber.num_restarts = 0; plumber.rcounts_since_restart = {} # Reset this.
     else:
-        find_errors_here = '\n'.join([tubo.blit() for tubo in plumber.tubo_history]) # Sometimes stderr can go into stdout, so a total blit is OK.
-        msg = err_prop.stderr2verbose_message(find_errors_here, compress_multible=True, helpful_id=plumber.tubo.machine_id)
-        err_prop.raise_from_message(err_prop.concat(msg, e))
+        stdout_blit = '\n'.join([tubo.blit(stdout=True, stderr=False) for tubo in plumber.tubo_history]) # Sometimes stderr can go into stdout, so a total blit is OK.
+        sterr_blit = '\n'.join([tubo.blit(stdout=False, stderr=True) for tubo in plumber.tubo_history])
+        msg0 = deep_stack.from_stream(stdout_blit, stderr_blit, compress_multible=True, helpful_id=plumber.tubo.machine_id)
+        msg1 = deep_stack.from_exception(e)
+        msg = msg1 if (not msg0) else deep_stack.concat(msg, msg1)
+        deep_stack.raise_from_message(msg)
 
 class Plumber():
     def __init__(self, tubo, packages, response_map, other_cmds, test_pairs, fn_override=None, dt=2.0):
