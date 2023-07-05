@@ -1,7 +1,8 @@
 # Patch system: Allows making and removing patches to variables.
 # (Of course this requires functions that get variables from modules)
-import sys
+import sys, re
 import proj
+from . import deep_stack
 
 _gld = proj.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
 
@@ -41,7 +42,33 @@ def reset_var(modulename, var_name):
     if is_modified(modulename, var_name):
         set_var(modulename, var_name, _gld['original_varss'][modulename][var_name])
 
-def eval_here(modulename, code_txt, delete_new_vars=False):
+############################### Code evaluation ################################
+
+def eval_better_report(code_line, *args, **kwargs):
+    # Error reports that show what code was evaled.
+    try:
+        return eval(code_line, *args, **kwargs)
+    except Exception as e:
+        msg = f'Eval error in: "{code_line}": {repr(e)}'
+        raise Exception(msg)
+
+def exec_better_report(code_txt, *args, **kwargs):
+    # Error reports that show what code was execed.
+    try:
+        exec(code_txt, *args, **kwargs)
+    except Exception as e:
+        report = deep_stack.the_old_way(e)
+        lines = report.split('\n')
+        if len(lines)<2:
+            msg = f'Exec error ({repr(e)}), but the error reporting cant track down the bad line of code.'
+            raise Exception(msg)
+        line_str = lines[-2].replace('Line','line')
+        line_num = int(re.search('line \d+', line_str).group().replace('line','').strip())
+        bad_line = code_txt[line_num-1]
+        msg = f'Exec error ({repr(e)}), bad line of code:"{bad_line}".'
+        raise Exception(msg)
+
+def exec_here(modulename, code_txt, delete_new_vars=False):
     # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
     # (which means that it returns an empty dict for purely side-effect-free code).
     # Option to delete new vars to "clean up"
@@ -49,7 +76,7 @@ def eval_here(modulename, code_txt, delete_new_vars=False):
     m = modulename if type(modulename) is type(sys) else sys.modules[modulename]
 
     vars0 = set(m.__dict__.keys())
-    exec(code_txt, vars(m)) # This also makes
+    exec_better_report(code_txt, vars(m)) # This also makes
     new_vars = list(set(m.__dict__.keys())-vars0); new_vars.sort()
 
     out = {}
