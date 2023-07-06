@@ -3,11 +3,12 @@
 # Filtering the error from the actual message is a pain, hopefully our fns work here!
 import traceback
 import re
-from . import colorful
+from . import colorful, fittings
 
 _head = '{{WaterworksErrPropStack}}' # Identifiers "greebles" used to detect Exceptions in the stream.
 _linehead = '<<Waterworks_ERR>>'
 _tail = '[[ENDWaterworksErrPropStack]]'
+varval_report_wrappers = ['...Water'+'works (starts here) Exec result...', '...of Water'+'works (ends here) Exec...']
 
 ################## String processing fns (Idempotent) ##########################
 
@@ -46,7 +47,7 @@ def pprint(msg):
 
     return '\n'.join(['Deep Traceback:']+lines)
 
-################################# Stream concat ################################
+################################# String processing fns (stream concat) ################################
 
 def prepend_helpful_id(msg, helpful_id):
     # Does nothing if the helpful_id is None.
@@ -72,7 +73,7 @@ def _block_compress(blocks):
             blocks1.append(b); _d.add(b)
     return blocks1
 
-################## String processing fns (streams and exception objects) #######################
+################## String processing fns (from pipe blits and exception objects) #######################
 
 def the_old_way(e): # Includes the traceback.
     if type(e) is str:
@@ -182,3 +183,84 @@ class VerboseError(Exception): # Verbose = Stack trace is in the message.
 
 def raise_from_message(stack_message):
     raise VerboseError(_basic_txt(stack_message))
+
+############################### Code evaluation ################################
+
+def _issym(x): # Is x a (single) symbol?
+    x = x.strip()
+    if len(x)==0 or x=='pass':
+        return False
+    if x.startswith('#'):
+        return False
+    for ch in '=+-/*%{}()[]\n ^@:':
+        if ch in x:
+            return False
+    return True
+
+def _is_obj(leaf):
+    ty = type(leaf)
+    return ty not in [str, int, float, bool]
+
+def _repr1(x): # Wrap objects in strings so that evaling the code doesn't syntax error.
+    return repr(fittings.cwalk(lambda x: repr(x) if _is_obj(x) else x, x, leaf_only=True))
+
+def eval_better_report(code_line, *args, **kwargs):
+    # Error reports that show what code was evaled.
+    try:
+        return eval(code_line, *args, **kwargs)
+    except Exception as e:
+        msg = f'Eval error in: "{code_line}": {repr(e)}'
+        raise Exception(msg)
+
+def exec_better_report(code_txt, *args, **kwargs):
+    # Raises reports that show what code was executed.
+    # In addition, if the last line is a symbol it will print the value (so that anyone reading our stdout will see it).
+    #   It will wrap the print in deep_stack.varval_report_wrappers
+    try:
+        import time; time.sleep(0.1) # DEBUG
+        exec(code_txt, *args, **kwargs)
+    except Exception as e: # Raise modified errors that provide better information.
+        report = the_old_way(e)
+        lines = report.split('\n')
+        if len(lines)<2:
+            msg = f'Exec error ({repr(e)}), but the error reporting cant track down the bad line of code.'
+            raise Exception(msg)
+        line_str = lines[-2].replace('Line','line')
+        line_num = int(re.search('line \d+', line_str).group().replace('line','').strip())
+        bad_line = code_txt[line_num-1]
+        msg = f'Exec error ({repr(e)}), bad line of code:"{bad_line}".'
+        raise Exception(msg)
+    lines = code_txt.strip().split('\n')
+    if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
+        print(varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1])
+
+def exec_here(modulename, code_txt, delete_new_vars=False):
+    # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
+    # (which means that it returns an empty dict for purely side-effect-free code).
+    # Option to delete new vars to "clean up"
+    #https://stackoverflow.com/questions/2220699/whats-the-difference-between-eval-exec-and-compile
+    m = modulename if type(modulename) is type(sys) else sys.modules[modulename]
+
+    vars0 = set(m.__dict__.keys())
+    exec_better_report(code_txt, vars(m)) # This also makes
+    new_vars = list(set(m.__dict__.keys())-vars0); new_vars.sort()
+
+    out = {}
+    for new_var in new_vars:
+        out[new_var] = getattr(m, new_var)
+        if delete_new_vars:
+            delattr(m, new_var)
+    return out
+
+def exec_feed(in_place_array, line, *args, **kwargs):
+    # Consumes code line-by-line and evals any code once the code becomes un-indented.
+    unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
+    more_than_comment = not line.startswith('#')
+    code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n')
+    even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with triple quotes.
+    its_running_time = even_triples and more_than_comment and unindented
+    if its_running_time:
+        del in_place_array[:]
+        exec_better_report(code, *args, **kwargs)
+    else:
+        in_place_array.append(line)

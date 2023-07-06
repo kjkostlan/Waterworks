@@ -1,6 +1,8 @@
 # Simple nuts-and-bolts IP functions.
 import ipaddress, difflib
 
+########################### Vanilla ############################################
+
 def dplane(x, out=None):
     # Flattens a nested dictionary into 2D: [key][index].
     if type(x) is list or type(x) is tuple:
@@ -19,29 +21,6 @@ def dplane(x, out=None):
             out[k].append(x[k])
     return out
 
-def in_cidr(ip_address, cidr_block):
-    if ip_address==cidr_block:
-        return True
-    return ipaddress.ip_network(ip_address).subnet_of(ipaddress.ip_network(cidr_block))
-
-def enclosing_cidrs(ip_or_cidr):
-    # All enclosing cidrs, including itself. Shouldn't the ipddress module have a similar feature?
-    if ':' in ip_or_cidr:
-        raise Exception('TODO: ipv6')
-    pieces = ip_or_cidr.replace('/','.').split('.')
-    if '/' not in ip_or_cidr:
-        return enclosing_cidrs(ip_or_cidr+'/32')
-    elif '/32' in ip_or_cidr:
-        return [ip_or_cidr.replace('/32',''), ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:3])+'.0/24')
-    elif '/24' in ip_or_cidr:
-        return [ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:2]+['0'])+'.0/16')
-    elif '/16' in ip_or_cidr:
-        return [ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:1]+['0', '0'])+'.0/8')
-    elif '/8' in ip_or_cidr:
-        return [ip_or_cidr, '0.0.0.0/0']
-    elif '/0' in ip_or_cidr:
-        return [ip_or_cidr]
-
 def flat_lookup(resc, k, v, assert_range=None):
     # Flat resource lokup. Not recommended for tags.
     if assert_range is None:
@@ -58,6 +37,26 @@ def flat_lookup(resc, k, v, assert_range=None):
     elif len(out)>assert_range[1]:
         raise Exception(f'Too many matches to {rtype} {k} {v}')
     return out
+
+def cwalk(f, x, leaf_only=True):
+    # Simple collection walk. Used in the subprocess to wrap objects as strings.
+    ty = type(x)
+    if type(x) is dict:
+        x = x if leaf_only else f(x)
+        return dict(zip([cwalk(f, k, leaf_only) for k in x.keys()], [cwalk(f, v, leaf_only) for v in x.values()]))
+    elif type(x) is list:
+        x = x if leaf_only else f(x)
+        return [cwalk(f, xi, leaf_only) for xi in x]
+    elif type(x) is set:
+        x = x if leaf_only else f(x)
+        return set([cwalk(f, xi, leaf_only) for xi in x])
+    elif type(x) is tuple:
+        x = x if leaf_only else f(x)
+        return tuple([cwalk(f, xi, leaf_only) for xi in x])
+    else:
+        return f(x)
+
+################################# Strings ######################################
 
 def txt_edit(old_txt, new_txt):
     # If not change or old_txt is None will not make a difference.
@@ -98,3 +97,28 @@ def utf8_one_char(read_bytes_fn):
             if 'unexpected end of data' not in str(e):
                 raise e
             bytes = bytes+read_bytes_fn(1)
+
+############################ IP addresses ######################################
+
+def in_cidr(ip_address, cidr_block):
+    if ip_address==cidr_block:
+        return True
+    return ipaddress.ip_network(ip_address).subnet_of(ipaddress.ip_network(cidr_block))
+
+def enclosing_cidrs(ip_or_cidr):
+    # All enclosing cidrs, including itself. Shouldn't the ipddress module have a similar feature?
+    if ':' in ip_or_cidr:
+        raise Exception('TODO: ipv6')
+    pieces = ip_or_cidr.replace('/','.').split('.')
+    if '/' not in ip_or_cidr:
+        return enclosing_cidrs(ip_or_cidr+'/32')
+    elif '/32' in ip_or_cidr:
+        return [ip_or_cidr.replace('/32',''), ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:3])+'.0/24')
+    elif '/24' in ip_or_cidr:
+        return [ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:2]+['0'])+'.0/16')
+    elif '/16' in ip_or_cidr:
+        return [ip_or_cidr]+enclosing_cidrs('.'.join(pieces[0:1]+['0', '0'])+'.0/8')
+    elif '/8' in ip_or_cidr:
+        return [ip_or_cidr, '0.0.0.0/0']
+    elif '/0' in ip_or_cidr:
+        return [ip_or_cidr]

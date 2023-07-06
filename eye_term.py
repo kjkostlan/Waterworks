@@ -6,7 +6,7 @@
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
 import proj
-from . import fittings, colorful
+from . import fittings, colorful, deep_stack
 
 _glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
@@ -340,6 +340,7 @@ class MessyPipe:
         self.print_buf = Sbuild(False) #Only filled if printouts=True
         self.print_dt = 0.125 # If update dribbles out info character-by-character this prevents excessive print calls.
         self.flush_stdin = True
+        self.error_horizons = [0, 0] # Index of where new errors begin to be reported on stdout, stderr.
         # The core init function is deferred untill one calls ensure_init or sends/listens to commands.
 
     def blit(self, include_history=True, stdout=True, stderr=True):
@@ -453,6 +454,21 @@ class MessyPipe:
         if self.loop_err:
             print('Polling loop exception:', self.loop_err)
             raise self.loop_err
+
+    def bubble_stream_errors(self, shift_horizons=True):
+        # Searches the streams for errors, mashing them together in one deep stack VerboseError
+        # Default: shifts the error horizon so that subsequent calls will not raise the same errors.
+
+        # Errors in the subprocess should feel like ordinary errors.
+        stdout_blit = self.blit(include_history=True, stdout=True, stderr=False)[self.error_horizons[0]:]
+        stderr_blit = self.blit(include_history=True, stdout=False, stderr=True)[self.error_horizons[1]:]
+        err_msg = deep_stack.from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=self.machine_id)
+        if shift_horizons:
+            self.error_horizons = [len(stdout_blit), len(stderr_blit)]
+        if err_msg:
+            old_stack = deep_stack.from_cur_stack()
+            err_msg1 = deep_stack.concat(old_stack, err_msg)
+            deep_stack.raise_from_message(err_msg1)
 
     def multi_API(self, cmds, f_polls=None, timeout=8):
         # For simplier series of commands.
