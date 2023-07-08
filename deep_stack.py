@@ -216,20 +216,26 @@ def exec_better_report(code_txt, *args, **kwargs):
     # Raises reports that show what code was executed.
     # In addition, if the last line is a symbol it will print the value (so that anyone reading our stdout will see it).
     #   It will wrap the print in deep_stack.varval_report_wrappers
+    code_txt = code_txt.replace('\r\n','\n')
     try:
         import time; time.sleep(0.1) # DEBUG
         exec(code_txt, *args, **kwargs)
     except Exception as e: # Raise modified errors that provide better information.
         report = the_old_way(e)
-        lines = report.split('\n')
-        if len(lines)<2:
-            msg = f'Exec error ({repr(e)}), but the error reporting cant track down the bad line of code.'
-            raise Exception(msg)
-        line_str = lines[-2].replace('Line','line')
-        line_num = int(re.search('line \d+', line_str).group().replace('line','').strip())
-        bad_line = code_txt[line_num-1]
-        msg = f'Exec error ({repr(e)}), bad line of code:"{bad_line}".'
-        raise Exception(msg)
+        code_lines = code_txt.split('\n')
+        err_lines = report.split('\n')
+        line_nums = [None for _ in range(len(err_lines))]
+        for i in range(len(err_lines)):
+            re_hit = re.search('line \d+', err_lines[i].replace('Line','line'))
+            if re_hit is not None and 'File "<string>"' in err_lines[i]:
+                _num = int(re_hit.group().replace('line','').strip())
+                if _num < len(code_lines):
+                    line_nums[i] = _num
+        non_none_line_nums = list(filter(lambda x: x is not None, line_nums))
+        # The stacktrace includes the error message:
+        broken_code_msg = (f'exec() error running {len(code_lines)} lines of code, bad line: "'+code_lines[non_none_line_nums[-1]-1]+'"') if len(non_none_line_nums)>0 else 'exec() error running this code: "'+code_txt+'"'
+
+        raise raise_from_message(broken_code_msg+': '+repr(e))
     lines = code_txt.strip().split('\n')
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
         print(varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1])

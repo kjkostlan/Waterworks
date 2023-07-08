@@ -39,7 +39,7 @@ def wrap(txt):
     lines = txt.split('\n')
     p = palette[lev%len(palette)]
     out = []
-    txt1 = '\n'.join([p+'('+'\x1b[0m'+line+p+')'+'\x1b[0m' for line in lines])
+    txt1 = '\n'.join([line if len(line.strip())==0 else p+'('+'\x1b[0m'+line+p+')'+'\x1b[0m' for line in lines])
     return txt1
 
 def unwrap_all(txt):
