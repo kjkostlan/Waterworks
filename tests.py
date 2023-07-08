@@ -14,6 +14,21 @@ def test_colorful():
 
     return out
 
+def test_ip_cidr(printouts=True):
+    # Such a simple tehcnical test.
+    out = True
+    gold = ['123.456.7.8', '123.456.7.8/32', '123.456.7.0/24', '123.456.0.0/16', '123.0.0.0/8', '0.0.0.0/0']
+    green = fittings.enclosing_cidrs('123.456.7.8')
+    out = out and gold==green
+    if printouts and not gold==green:
+        print('Gold vs green:', [gold[i]+' '+green[i] for i in range(len(gold))])
+    gold = ['555.444.3.0/24', '555.444.0.0/16', '555.0.0.0/8', '0.0.0.0/0']
+    green = fittings.enclosing_cidrs('555.444.3.0/24')
+    out = out and gold==green
+    if printouts and not gold==green:
+        print('Gold vs green:', [gold[i]+' '+green[i] for i in range(len(gold))])
+    return out
+
 def test_deep_stack():
     # Simple test of error propagation.
     out = True
