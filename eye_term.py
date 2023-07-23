@@ -179,6 +179,7 @@ def _init_local_subprocess(self, which_proc):
             safe_list.append(ord(the_pipe.read(1)) if self.binary_mode else fittings.utf8_one_char(the_pipe.read))
 
     use_pty = False # Why does pexpect work so much better than vanilla? Is this the secret sauce? But said sauce is hard to use, thus it's False for now.
+    stringy_set_encoding = True # Set encodings if not binary mode.
     #https://gist.github.com/thomasballinger/7979808
     if use_pty:
         import pty
@@ -189,6 +190,8 @@ def _init_local_subprocess(self, which_proc):
         stdin = subprocess.PIPE
 
     kwargs = {'stdin':stdin, 'stdout':subprocess.PIPE, 'stderr':subprocess.PIPE} # 'close_fds':Bool 'shell':True 'bufsize':0
+    if not binary_mode and stringy_set_encoding:
+        kwargs['encoding'] = 'utf-8'
     if self.init_working_dir is not None: # Start the process in a different directory, if specified.
         kwargs['cwd'] = self.init_working_dir
     p = subprocess.Popen(which_proc_plus_args, **kwargs) # shell=True has no effect?
@@ -197,7 +200,9 @@ def _init_local_subprocess(self, which_proc):
     def _stdouterr_f(is_err):
         p_std = p.stderr if is_err else p.stdout
         p_std.flush()
-        if self.binary_mode:
+        if stringy_set_encoding:
+            return p_std.read(1)
+        elif self.binary_mode:
             return p_std.read(1)
         else:
             return fittings.utf8_one_char(p_std.read)
@@ -212,8 +217,11 @@ def _init_local_subprocess(self, which_proc):
             pty_input.write(x)
             pty_input.flush()
         else:
-            if type(x) is str: # Bash subprocesses always take binary bytes?
-                x = x.encode()
+            use_binary_here = binary_mode or (not stringy_set_encoding)
+            if type(x) is str and use_binary_here:
+                x = x.encode('utf-8')
+            elif type(x) is bytes and (not binary_mode):
+                x = x.decode('utf-8')
             p.stdin.write(x)
             if self.flush_stdin: # Is this even needed? Can it cause errors sometimes?
                 try:
