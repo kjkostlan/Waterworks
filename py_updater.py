@@ -139,11 +139,12 @@ def startup_python(modulename, pyfname, exec_module=True):
     uglobals['filemodified'][pyfname] = file_io.date_mod(pyfname)
     return out
 
-def module_fnames(): # code from Termpylus.
+def module_fnames(): # Code from Termpylus.
     # Only modules that have files, and dict values are module names.
     # Also can restrict to user-only files.
     out = {}
-    for k in sys.modules.keys():
+    kys = list(sys.modules.keys()) # Once in a while sys.modules can get a new module during this loop.
+    for k in kys:
         fname = sys.modules[k].__dict__.get('__file__', None)
         if fname is not None:
             out[k] = fname.replace('\\','/')

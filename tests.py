@@ -15,7 +15,7 @@ def test_colorful():
     return out
 
 def test_ip_cidr(printouts=True):
-    # Such a simple tehcnical test.
+    # Such a simple technical test.
     out = True
     gold = ['123.456.7.8', '123.456.7.8/32', '123.456.7.0/24', '123.456.0.0/16', '123.0.0.0/8', '0.0.0.0/0']
     green = fittings.enclosing_cidrs('123.456.7.8')

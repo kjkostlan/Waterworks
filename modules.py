@@ -41,7 +41,8 @@ def module_fnames(user_only=False):
     # Only modules that have files, and dict values are module names.
     # Also can restrict to user-only files.
     out = {}
-    for k in sys.modules.keys():
+    kys = list(sys.modules.keys()) # Once in a while sys.modules can get a new module during this loop.
+    for k in kys:
         fname = module_file(sys.modules[k])
         if fname is not None and (not user_only or is_user(k)):
             out[k] = fname.replace('\\','/')
