@@ -76,7 +76,7 @@ def manual_labor(plumber):
 def maybe_interactive_error(plumber, e):
     # Lets the user manually input the error.
     print('Plumber encountered an error that should be debugged:')
-    print('\n'.join(traceback.format_exception(e)))
+    print('\n'.join(traceback.format_exception(None, e, e.__traceback__)))
     print(f"\033[38;2;255;255;0;48;2;0;0;139mError: {e}; entering interactive debug session.\033[0m")
     x = interactive_error_mode and manual_labor(plumber)
     if x:
