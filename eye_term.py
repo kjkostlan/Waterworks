@@ -351,28 +351,27 @@ class MessyPipe:
         self.error_horizons = [0, 0] # Index of where new errors begin to be reported on stdout, stderr.
         # The core init function is deferred untill one calls ensure_init or sends/listens to commands.
 
-    def blit(self, include_history=True, stdout=True, stderr=True):
-        # Blits everything in the stream, option to only use everything since last output.
+    def blit_range(self, ix0, ix1, stdin=False, stdout=True, stderr=True):
+        # Ranged blit based on packets.
         self.assert_no_loop_err()
         with self.lock:
-            if include_history:
-                if self.binary_mode:
-                    out = b''
-                    for pak in self.packets:
-                        if stdout:
-                            out.extend(pak[1].val())
-                        if stderr:
-                            out.extend(pak[2].val())
-                    return out
-                else:
-                    return ''.join([(pk[1].val() if stdout else '')+(pk[2].val() if stderr else '') for pk in self.packets])
-            else:
-                out = b'' if self.binary_mode else ''
-                if stdout:
-                    out = out+self.packets[-1][1].val()
-                if stderr:
-                    out = out+self.packets[-1][2].val()
+            packets = self.packets[ix0:ix1]
+            if self.binary_mode:
+                out = b''
+                for pak in self.packets:
+                    if stdin:
+                        out.extend(pak[0].val())
+                    if stdout:
+                        out.extend(pak[1].val())
+                    if stderr:
+                        out.extend(pak[2].val())
                 return out
+            else:
+                return ''.join([(pk[0].val() if stdin else '')+(pk[1].val() if stdout else '')+(pk[2].val() if stderr else '') for pk in packets])
+
+    def blit(self, include_history=True, stdin=False, stdout=True, stderr=True):
+        # Blits everything in the stream or everything since last output.
+        return self.blit_range(0 if include_history else len(self.packets[-1])-1, None, stdin, stdout, stderr)
 
     def update(self, is_std_err): # Returns the len of the data.
         def _boring_txt(txt):
