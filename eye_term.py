@@ -371,7 +371,7 @@ class MessyPipe:
 
     def blit(self, include_history=True, stdin=False, stdout=True, stderr=True):
         # Blits everything in the stream or everything since last output.
-        return self.blit_range(0 if include_history else len(self.packets[-1])-1, None, stdin, stdout, stderr)
+        return self.blit_range(0 if include_history else len(self.packets)-1, None, stdin, stdout, stderr)
 
     def update(self, is_std_err): # Returns the len of the data.
         def _boring_txt(txt):
