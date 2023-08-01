@@ -89,8 +89,53 @@ def maybe_interactive_error(plumber, e):
         msg = msg1 if (not msg0) else deep_stack.concat(msg, msg1)
         deep_stack.raise_from_message(msg)
 
+def compile_tasks(tasks):
+    # Compiles tasks into seperate steps and tests.
+    # They solve tasks in order. Each task can have:
+       # 'packages': Packages to install (includes built-in tests to make sure the packages actually installed).
+       # 'commands': Other cmds to run.
+       # 'tests': Tests to run; if they fail the cmds are re-tried up to a few times.
+    # This compiles to a list:
+    #  ['command', the_cmd]
+    #  ['test', test_cmd, test_results]
+    #  ['checkpoint']
+    #  If all tests fail.
+    # Multible tests can be splayed out as well.
+    out = []
+    if type(tasks) is dict:
+        tasks = [tasks]
+    for task in tasks:
+        if len(set(task.keys())-set(['packages', 'commands', 'tests']))>0:
+            raise Exception('Task must have only keys packages, commands, tests.')
+        for p in task.get('packages', []):
+
+            pkg = p.strip(); ppair = pkg.split(' ')
+            if ppair[0] == 'apt':
+                _quer = ptools.apt_query; _err = ptools.apt_error; _ver = ptools.apt_verify
+                _cmd = 'sudo apt install '+ppair[1]
+            elif ppair[0] == 'pip' or ppair[0] == 'pip3':
+                _quer = ptools.pip_query; _err = ptools.pip_error; _ver = ptools.pip_verify
+                _cmd = 'pip3 install '+ppair[1]
+            else:
+                raise Exception(f'Package must be of the format "apt foo" or "pip3 bar" (not "{pkg}"); no other managers are currently supported.')
+            out.append(['command', _cmd])
+            if (ppair[0] != 'pip' and ppair[0] != 'pip3') or ('_' not in pkg and '-' not in pkg): # Not sure how to handle pip and _.
+                out.append(['test', _quer(pkg), lambda txt: _ver(pkg, txt)])
+        for cmd in task.get('commands', []):
+            out.append(['command', cmd])
+        for t in task.get('tests',[]):
+            out.append(['test', t[0], t[1]])
+    return out
+
+def bash_awake_test():
+    TODO
+
+def python_awake_test():
+    TODO
+
 class Plumber():
-    def __init__(self, tubo, packages, response_map, other_cmds, test_pairs, fn_override=None, dt=2.0):
+    # Plumbers are designed to perform *and verify* complex commands that require lots of dealing with mess.
+    def __init__(self, tubo, tasks, response_map, fn_override=None, dt=2.0):
         # test_pairs is a vector of [cmd, expected] pairs.
         if tubo.closed: # Make sure the pipe is open.
             tubo = tubo.remake()
@@ -100,14 +145,7 @@ class Plumber():
         self.max_restarts = 3
         self.pipe_fix_fn = None
 
-        #self.broken_record = 0 # Num times the last err appeared.
-        #self.err_counts = {} # TODO: use.
-        if test_pairs is None or len(test_pairs)==0:
-            test_pairs = []
-        if test_pairs == 'default':
-            test_pairs = [['echo foo{bar,baz}', 'foobar foobaz']]
-        if other_cmds is None:
-            other_cmds = []
+        #self.err_counts = {} # Useful?
         self.dt = dt # Time-step when we need to wait, if the cmd returns faster we will respond faster.
         self.response_map = response_map
         self.fn_override = fn_override
@@ -115,14 +153,11 @@ class Plumber():
         self.tubo = tubo
         self.tubo_history = [tubo] # Always includes the current tubo.
         self.nsteps = 0
+        self.task_packet_frusteration = 0
 
-        self.remaining_packages = list(packages)
-        self.remaining_misc_cmds = other_cmds
-        self.remaining_tests = test_pairs
-
-        self.completed_packages = []
-        self.completed_misc_cmds = []
-        self.completed_tests = []
+        self.remaining_tasks = compile_tasks(tasks)
+        self.rem_task_ix = 0
+        self.completed_tasks = []
 
         self.mode = 'green' # Finite state machine.
 
@@ -134,19 +169,6 @@ class Plumber():
         if fix_f is None: # Only errors which can be thrown by ssh unreliabilities aren't thrown.
             maybe_interactive_error(self, e)
         return fix_f
-
-    def _restart_if_too_loopy(self, k, not_pipe_related=None):
-        # k indentifies the error or the prompt, etc.
-        if k is None:
-            return
-        k = str(k)
-        self.rcounts_since_restart[k] = self.rcounts_since_restart.get(k,0)+1
-        n = self.rcounts_since_restart[k]
-        slow = time.time() - self.last_restart_time > 90
-        if (slow and n >= 3) or (not_pipe_related and n>8):
-            if self.tubo.printouts:
-                colorful.bprint('Installation may be stuck in a loop, restarting machine')
-            self.restart_vm()
 
     def send_cmd(self, _cmd, add_to_packets=True):
         # Preferable than tubo.send since we store cmd_history and catch SSH errors.
@@ -166,26 +188,27 @@ class Plumber():
         self.last_restart_time = time.time()
         self.num_restarts = self.num_restarts+1
 
+    def _restart_if_too_loopy(self, not_pipe_related=None):
+        n = self.task_packet_frusteration
+        slow = time.time() - self.last_restart_time > 90
+        if (slow and n >= 3) or (not_pipe_related and n>8):
+            if self.tubo.printouts:
+                colorful.bprint('Installation may be stuck in a loop, restarting machine')
+            self.restart_vm()
+            self.task_packet_frusteration = 0
+
     def blit_based_response(self):
         # Responses based on the blit alone, including error handling.
         # None means that there is no need to give a specific response.
-        pkg = 'Nonepkg'
-        if len(self.remaining_packages)>0:
-            pkg = self.remaining_packages[0]
         txt = self.tubo.blit(False)
-        #w = ptools.ssh_error(txt, self.cmd_history) # SSH errors are handled by catching exceptions instead.
-        #if w is not None:
-        #    return w
-        x = ptools.apt_error(txt, pkg, self.cmd_history)
-        if x is not None:
-            return x
-        y = ptools.pip_error(txt, pkg, self.cmd_history)
-        if y is not None:
-            return y
         z = ptools.get_prompt_response(txt, self.response_map) # Do this last in case there is a false positive that actually is an error.
         if z is not None:
             return z
         return None
+
+    def blit_all(self):
+        # Blits across multible tubos.
+        return ''.join([tubo.blit(include_history=True) for tubo in self.tubo_history])
 
     def short_wait(self):
         # Waits up to self.dt for the tubo, hoping that the tubo catches up.
@@ -205,46 +228,12 @@ class Plumber():
             self.send_cmd('Y\necho waiting_for_shell', add_to_packets=False) # Breaking the ssh pipe will make this cause errors.
         return False
 
-    def step_packages(self):
-        # Returns True once installation and testing is completed.
-        pkg = self.remaining_packages[0].strip(); ppair = pkg.split(' ')
-        if ppair[0] == 'apt':
-            _quer = ptools.apt_query; _err = ptools.apt_error; _ver = ptools.apt_verify
-            _cmd = 'sudo apt install '+ppair[1]
-        elif ppair[0] == 'pip' or ppair[0] == 'pip3':
-            _quer = ptools.pip_query; _err = ptools.pip_error; _ver = ptools.pip_verify
-            _cmd = 'pip3 install '+ppair[1]
-        else:
-            raise Exception(f'Package must be of the format "apt foo" or "pip bar" (not "{pkg}"); no other managers are currently supported.')
-
-        if self.mode == 'green':
-            self.send_cmd(_cmd)
-            self.mode = 'blue'
-        elif self.mode == 'blue':
-            self.send_cmd(_quer(pkg))
-            self.mode = 'orange'
-        elif self.mode == 'orange':
-            txt = self.tubo.blit(False)
-            self.mode = 'green' # Done OR restart loop.
-            v = _ver(pkg, txt)
-            if v:
-                return True
-            safe_no_pipe = v is False # Exclude None.
-            self._restart_if_too_loopy(pkg+'_'+_quer(pkg), not_pipe_related=safe_no_pipe) # safe_no_pipe means that the SSH pipe is safely up and running.
-
-            if ppair[0]=='apt':
-                self.send_cmd('sudo apt update\nudo apt upgrade')
-            elif ppair[0] == 'pip' or ppair[0] == 'pip3':
-                self.send_cmd('pip3 install --upgrade pip')
-        else:
-            self.mode = 'green'
-        return False
-
-    def step_tests(self):
-        the_cmd, look_for_this = self.remaining_tests[0]
+    def step_tests(self, the_cmd, look_for_this):
+        # False means failed, None means in progress.
         if self.mode == 'green':
             self.send_cmd(the_cmd)
             self.mode = 'magenta'
+            return None
         elif self.mode == 'magenta':
             self.mode = 'green' # Another reset loop if we fail.
             txt = self.tubo.blit(False)
@@ -253,19 +242,19 @@ class Plumber():
 
             miss = False
             for look_for in look_for_this:
-                if callable(look_for) and look_for(txt): # Function or string.
-                    pass
+                if callable(look_for):
+                    if look_for(txt):
+                        continue
                 elif look_for in txt:
-                    pass
-                else:
-                    miss = True
+                    continue
+                miss = True
             if not miss:
                 return True
-
-            self._restart_if_too_loopy(the_cmd+'_'+'_'.join(look_for_this))
+            return False
         else:
             self.mode = 'green'
-        return False
+            return None
+        return None
 
     def step(self):
         if self.fn_override is not None: # For those occasional situations where complete control of everything is needed.
@@ -301,37 +290,47 @@ class Plumber():
 
         # Restart if we seem stuck in a loop:
         send_this = self.blit_based_response() # These can introject randomally (if i.e. the SSH pipe goes down and need a reboot).
-        self._restart_if_too_loopy(send_this)
+        self._restart_if_too_loopy()
 
         if callable(send_this): # Sometimes the response is a function of the plumber, not a simple txt prompt.
             send_this(self)
+            self.nsteps += 1
+            return False
         elif send_this is not None:
             self.send_cmd(send_this)
-        elif len(self.remaining_packages)>0:
-            if self.step_packages():
-                self.completed_packages.append(self.remaining_packages[0])
-                self.remaining_packages = self.remaining_packages[1:]
-        elif len(self.remaining_misc_cmds)>0:
-            # Commands that are ran after installation.
-            self.send_cmd(self.remaining_misc_cmds[0])
-            self.completed_misc_cmds.append(self.remaining_misc_cmds[0])
-            self.remaining_misc_cmds = self.remaining_misc_cmds[1:]
-        elif len(self.remaining_tests)>0:
-            # Extra tests, beyond the specific verifications.
-            if self.step_tests():
-                self.completed_tests.append(self.remaining_tests[0])
-                self.remaining_tests = self.remaining_tests[1:]
-        else:
             self.nsteps += 1
-            return True
-        self.nsteps += 1
+            return False
+        if len(self.remaining_tasks)<=self.rem_task_ix: # All done!
+            self.completed_tasks.extend(self.remaining_tasks)
+            self.remaining_tasks = []
+            return True # We are done with all the tasks and tests thereof.
+
+        tsk = self.remaining_tasks[self.rem_task_ix]
+        ty = tsk[0].lower()
+        if ty == 'checkpoint':
+            self.completed_tasks.extend(self.remaining_tasks[0:self.rem_task_ix])
+            self.remaining_tasks = self.remaining_tasks[self.rem_task_ix+1:]
+            self.rem_task_ix = 0
+        elif ty == 'command' or ty == 'cmd':
+            self.send_cmd(tsk[1])
+            self.rem_task_ix = self.rem_task_ix+1
+            self.nsteps += 1
+        elif ty == 'test':
+            tresult = self.step_tests(tsk[1], tsk[2])
+            if tresult:
+                self.rem_task_ix = self.rem_task_ix+1
+            elif tresult is False: # None isn't a fail, but False is.
+                colorful.bprint('Test for this task failed, retrying task.')
+                self.task_packet_frusteration += 1
+                self.rem_task_ix = 0
+                if self.task_packet_frusteration>16:
+                    raise Exception('Cant get the test working.')
+            self.nsteps += 1
+        else:
+            raise Exception('Unknown (compiled) task type: '+ty)
         return False
 
     def run(self):
         while not self.step():
             pass
         return self.tubo
-
-    def blit_all(self):
-        # Blits all the history from all the tubos.
-        return ''.join([tubo.blit(include_history=True) for tubo in self.tubo_history])
