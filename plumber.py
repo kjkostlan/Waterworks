@@ -268,7 +268,6 @@ class Plumber():
                 colorful.bprint('Init the pipe failed b/c:', str(e), '. It may not be ready yet.\n')
         if self.pipe_fix_fn is not None:
             # Attempt to pipe_fix_fn, but the fn itself may cause an error (i.e. waiting for a vm to restart).
-            t0 = time.time()
             try:
                 tubo1 = self.pipe_fix_fn(self)
                 if tubo1 is not self.tubo:
@@ -286,9 +285,8 @@ class Plumber():
                 if self.tubo.printouts:
                     colorful.bprint('Running remedy failed b/c of:', str(e), '. This may be b/c the machine is rebooting, etc. Will run remedy for remedy.\n')
             # Random sleep time:
-            t1 = time.time()
             import random
-            sleep_time = (0.1+random.random()*random.random())*(t1-t0)
+            sleep_time = (0.1+random.random()*random.random())*25
             if self.tubo.printouts:
                 colorful.bprint('Random pipe fix sleep (seems to help break out of some not-yet-ready-after-fix loops):', sleep_time)
             time.sleep(sleep_time)
