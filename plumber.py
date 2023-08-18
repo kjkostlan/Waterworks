@@ -260,6 +260,7 @@ class Plumber():
         if self.fn_override is not None: # For those occasional situations where complete control of everything is needed.
             if self.fn_override(self):
                 return False
+        t0 = time.time()
         try:
             self.tubo.ensure_init()
         except Exception as e:
@@ -285,8 +286,9 @@ class Plumber():
                 if self.tubo.printouts:
                     colorful.bprint('Running remedy failed b/c of:', str(e), '. This may be b/c the machine is rebooting, etc. Will run remedy for remedy.\n')
             # Random sleep time:
+            t1 = time.time()
             import random
-            sleep_time = (0.1+random.random()*random.random())*25
+            sleep_time = (0.1+random.random()*random.random())*(t1-t0)
             if self.tubo.printouts:
                 colorful.bprint('Random pipe fix sleep (seems to help break out of some not-yet-ready-after-fix loops):', sleep_time)
             time.sleep(sleep_time)
