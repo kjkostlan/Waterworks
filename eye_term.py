@@ -149,7 +149,8 @@ def pipe_update_loop(tubo, is_err): # For ever watching... untill the thread get
         dt = min(dt1, dt*1.414)
 
 def pipe_print_loop(tubo):
-    while True:
+    n_close = 0
+    while n_close<2: # One chance to print after closing.
         if tubo.printouts:
             if len(str(tubo.print_buf))>0:
                 with tubo.lock: # Does this prevent interleaving out and err prints?
@@ -157,7 +158,7 @@ def pipe_print_loop(tubo):
                     tubo.print_buf = Sbuild(False)
         time.sleep(tubo.print_dt)
         if tubo.closed:
-            break
+            n_close = n_close+1
 
 ################################Which-pipe specific fns###############################
 
