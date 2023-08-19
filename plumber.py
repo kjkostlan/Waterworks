@@ -1,19 +1,48 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
 from . import eye_term, colorful, deep_stack
-from . import plumber_tools as ptools
+from . import plumb_packs
 
 try:
     interactive_error_mode # Debug tool.
 except:
     interactive_error_mode = False
 
-def default_prompts():
-    # Default line end prompts and the needed input (str or function of the pipe).
+def _last_line(txt):
+    return txt.replace('\r\n','\n').split('\n')[-1]
 
-    return {'Pending kernel upgrade':'\n\n\n','continue? [Y/n]':'Y',
-            'Continue [yN]':'Y', 'To continue please press [ENTER]':'\n', # the '\n' actually presses enter twice b/c linefeeds are added.
-            'continue connecting (yes/no)?':'Y'}
+def get_prompt_response(txt, response_map):
+    # "Do you want to continue (Y/n); input AWS user name; etc"
+    lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
+    # (A few false positive inputs is unlikely to cause trouble).
+    for otxt in [lline, txt]:
+        for k in response_map.keys():
+            if k in otxt:
+                if callable(response_map[k]):
+                    return response_map[k](otxt)
+                return response_map[k]
+
+#def cmd_list_fixed_prompt(tubo, cmds, response_map, timeout=16): # LIkely deprecated fn.
+#    TODO #get_prompt_response(txt, response_map)
+#    x0 = tubo.blit()
+#    def _check_line(_tubo, txt):
+#        lline = _last_line(_tubo.blit(include_history=False))
+#        return txt in lline
+#    line_end_poll = lambda _tubo: looks_like_blanck_prompt(_last_line(_tubo.blit(include_history=False)))
+#    f_polls = {'_vanilla':line_end_poll}
+#
+#    for k in response_map.keys():
+#        f_polls[k] = lambda _tubo, txt=k: _check_line(_tubo, txt)
+#    for cmd in cmds:
+#        _out, _err, poll_info = tubo.API(cmd, f_polls, timeout=timeout)
+#        while poll_info and poll_info != '_vanilla':
+#            txt = response_map[poll_info]
+#            if type(txt) is str:
+#                _,_, poll_info = tubo.API(txt, f_polls, timeout=timeout)
+#            else:
+#                txt(tubo); break
+#    x1 = tubo.blit(); x = x1[len(x0):]
+#    return tubo, x
 
 def loop_try(f, f_catch, msg, delay=4):
     # Waiting for something? Keep looping untill it succedes!
@@ -102,13 +131,13 @@ def compile_tasks(tasks):
         for p in task.get('packages', []):
             pkg = p.strip(); ppair = pkg.split(' ')
             if ppair[0] == 'apt':
-                _quer = ptools.apt_query; _err = ptools.apt_error; _ver = ptools.apt_verify
+                _quer = plumb_packs.apt_query; _err = plumb_packs.apt_error; _ver = plumb_packs.apt_verify
                 _cmd = 'sudo apt install '+ppair[1]
                 #No apt package "foo-bar", but there is a snap with that name.
                 #Try "snap install foo-bar"
                 more_responses[f'Try "snap install {ppair[1]}"'] = f'sudo snap install {ppair[1]} --classic' # Classic gives snap full access, which is OK since VMs can be torn down if anything breaks.
             elif ppair[0] == 'pip' or ppair[0] == 'pip3':
-                _quer = ptools.pip_query; _err = ptools.pip_error; _ver = ptools.pip_verify
+                _quer = plumb_packs.pip_query; _err = plumb_packs.pip_error; _ver = plumb_packs.pip_verify
                 _cmd = 'pip3 install '+ppair[1]
             else:
                 raise Exception(f'Package must be of the format "apt foo" or "pip3 bar" (not "{pkg}"); no other managers are currently supported.')
@@ -159,7 +188,7 @@ class Plumber():
         # Throws e if not a recognized "SSH pipe malfunctioning" error.
         # If it is, will return the remedy.
         e_txt = str(e)+' '+str(type(e))
-        fix_f = ptools.ssh_error(e_txt, self.cmd_history)
+        fix_f = plumb_packs.ssh_error(e_txt, self.cmd_history)
         if fix_f is None: # Only errors which can be thrown by ssh unreliabilities aren't thrown.
             maybe_interactive_error(self, e)
         return fix_f
@@ -196,7 +225,7 @@ class Plumber():
         # Responses based on the blit alone, including error handling.
         # None means that there is no need to give a specific response.
         txt = self.tubo.blit(False)
-        z = ptools.get_prompt_response(txt, self.response_map) # Do this last in case there is a false positive that actually is an error.
+        z = get_prompt_response(txt, self.response_map) # Do this last in case there is a false positive that actually is an error.
         if z is not None:
             return z
         return None

@@ -1,41 +1,12 @@
-# These plumbertools are used in plumber, and are generally less useful outside of plumber.
+# Tools for installing packages.
 import re
 
-def _last_line(txt):
-    return txt.replace('\r\n','\n').split('\n')[-1]
+def default_prompts():
+    # Default line end prompts and the needed input (str or function of the pipe).
 
-def get_prompt_response(txt, response_map):
-    # "Do you want to continue (Y/n); input AWS user name; etc"
-    lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
-    # (A few false positive inputs is unlikely to cause trouble).
-    for otxt in [lline, txt]:
-        for k in response_map.keys():
-            if k in otxt:
-                if callable(response_map[k]):
-                    return response_map[k](otxt)
-                return response_map[k]
-
-#def cmd_list_fixed_prompt(tubo, cmds, response_map, timeout=16): # LIkely deprecated fn.
-#    TODO #get_prompt_response(txt, response_map)
-#    x0 = tubo.blit()
-#    def _check_line(_tubo, txt):
-#        lline = _last_line(_tubo.blit(include_history=False))
-#        return txt in lline
-#    line_end_poll = lambda _tubo: looks_like_blanck_prompt(_last_line(_tubo.blit(include_history=False)))
-#    f_polls = {'_vanilla':line_end_poll}
-#
-#    for k in response_map.keys():
-#        f_polls[k] = lambda _tubo, txt=k: _check_line(_tubo, txt)
-#    for cmd in cmds:
-#        _out, _err, poll_info = tubo.API(cmd, f_polls, timeout=timeout)
-#        while poll_info and poll_info != '_vanilla':
-#            txt = response_map[poll_info]
-#            if type(txt) is str:
-#                _,_, poll_info = tubo.API(txt, f_polls, timeout=timeout)
-#            else:
-#                txt(tubo); break
-#    x1 = tubo.blit(); x = x1[len(x0):]
-#    return tubo, x
+    return {'Pending kernel upgrade':'\n\n\n','continue? [Y/n]':'Y',
+            'Continue [yN]':'Y', 'To continue please press [ENTER]':'\n', # the '\n' actually presses enter twice b/c linefeeds are added.
+            'continue connecting (yes/no)?':'Y'}
 
 def apt_error(txt, pkg, cmd_history):
     # Errors and the recommended response after running an apt cmd.
