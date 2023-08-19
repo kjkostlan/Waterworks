@@ -10,19 +10,10 @@ except:
 
 def default_prompts():
     # Default line end prompts and the needed input (str or function of the pipe).
-    def _super_advanced_linux_shell(): # Newfangled menu where.
-        # What button do you press to continue?
-        import random
-        out = []
-        for i in range(256): # We are getting frusterated...
-            chs = ['\033[1A','\033[1B','\033[1C','\033[1D','o','O','y','Y','\n']
-            out.append(random.choice(chs))
-        return ''.join(out)
 
     return {'Pending kernel upgrade':'\n\n\n','continue? [Y/n]':'Y',
             'Continue [yN]':'Y', 'To continue please press [ENTER]':'\n', # the '\n' actually presses enter twice b/c linefeeds are added.
-            'continue connecting (yes/no)?':'Y',
-            'Which services should be restarted?':_super_advanced_linux_shell()}
+            'continue connecting (yes/no)?':'Y'}
 
 def loop_try(f, f_catch, msg, delay=4):
     # Waiting for something? Keep looping untill it succedes!
@@ -101,6 +92,7 @@ def compile_tasks(tasks):
     #  ['checkpoint']
     #  If all tests fail.
     # Multible tests can be splayed out as well.
+    more_responses = {}
     out = []
     if type(tasks) is dict:
         tasks = [tasks]
@@ -108,11 +100,13 @@ def compile_tasks(tasks):
         if len(set(task.keys())-set(['packages', 'commands', 'tests']))>0:
             raise Exception('Task must have only keys packages, commands, tests.')
         for p in task.get('packages', []):
-
             pkg = p.strip(); ppair = pkg.split(' ')
             if ppair[0] == 'apt':
                 _quer = ptools.apt_query; _err = ptools.apt_error; _ver = ptools.apt_verify
                 _cmd = 'sudo apt install '+ppair[1]
+                #No apt package "foo-bar", but there is a snap with that name.
+                #Try "snap install foo-bar"
+                more_responses[f'Try "snap install {ppair[1]}"'] = f'sudo snap install {ppair[1]} --classic' # Classic gives snap full access, which is OK since VMs can be torn down if anything breaks.
             elif ppair[0] == 'pip' or ppair[0] == 'pip3':
                 _quer = ptools.pip_query; _err = ptools.pip_error; _ver = ptools.pip_verify
                 _cmd = 'pip3 install '+ppair[1]
@@ -125,7 +119,7 @@ def compile_tasks(tasks):
             out.append(['command', cmd])
         for t in task.get('tests',[]):
             out.append(['test', t[0], t[1]])
-    return out
+    return out, more_responses
 
 def bash_awake_test():
     TODO
@@ -147,7 +141,6 @@ class Plumber():
 
         #self.err_counts = {} # Useful?
         self.dt = dt # Time-step when we need to wait, if the cmd returns faster we will respond faster.
-        self.response_map = response_map
         self.fn_override = fn_override
         self.cmd_history = []
         self.tubo = tubo
@@ -155,7 +148,8 @@ class Plumber():
         self.nsteps = 0
         self.task_packet_frusteration = 0
 
-        self.remaining_tasks = compile_tasks(tasks)
+        self.remaining_tasks, more_responses = compile_tasks(tasks)
+        self.response_map = {**more_responses, **response_map}
         self.rem_task_ix = 0
         self.completed_tasks = []
 
@@ -179,14 +173,15 @@ class Plumber():
             if self.tubo.printouts:
                 colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
 
-    def restart_vm(self, raise_max_restart_error=True):
+    def restart_vm(self, penalize=True):
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
-        if raise_max_restart_error and self.num_restarts==self.max_restarts:
+        if penalize and self.num_restarts==self.max_restarts:
             maybe_interactive_error(self, Exception('Max restarts exceeded, there appears to be an infinite loop that cant be broken.'))
         self.tubo.restart_fn()
         self.rcounts_since_restart = {}
         self.last_restart_time = time.time()
-        self.num_restarts = self.num_restarts+1
+        if penalize:
+            self.num_restarts = self.num_restarts+1
 
     def _restart_if_too_loopy(self, not_pipe_related=None):
         n = self.task_packet_frusteration
@@ -257,6 +252,12 @@ class Plumber():
         return None
 
     def step(self):
+        if 'Which services should be restarted?' in self.tubo.blit(include_history=False):
+            # This menu appears during installation and is *very annoying*, so it makes sense to restart the vm.
+            colorful.bprint('The "Which services should be restarted?" box really, really, REALLY wants to be a GUI. So why is it hanging out in the CLI? Either way its restart VM time.')
+            time.sleep(1.5)
+            self.restart_vm(penalize=False) # Do not count it toward the max restarts.
+
         if self.fn_override is not None: # For those occasional situations where complete control of everything is needed.
             if self.fn_override(self):
                 return False
@@ -289,7 +290,7 @@ class Plumber():
             t1 = time.time()
             import random
             sleep_time = (0.1+random.random()*random.random())*(t1-t0)
-            if self.tubo.printouts:
+            if self.tubo.printouts and sleep_time>0.25:
                 colorful.bprint('Random pipe fix sleep (seems to help break out of some not-yet-ready-after-fix loops):', sleep_time)
             time.sleep(sleep_time)
 
