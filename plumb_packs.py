@@ -1,52 +1,34 @@
-# Tools for installing packages.
+# Functions and rulesets for how the plumber can install packages.
 import re
+
+# Each plumber has a workflow which is a dict of nodes: (tubo has node_state which is set to None upon entering each node).
+# "lambda": f(tubo) => called every step if present.
+  # Return '->' to jumpt to next node.
+  # Return False to do nothing.
+  # Return 'break' or 'continue' to stop the current step.
+# "cmd": String or list of strings to send as commands.
+   # can be/include a "(restart)" to restart the VM
+# "response_map": Response to substrings of the last line of blit. Such as "Input Y/n" => "Y".
+   # Special responses: "(restart)" to restart, "(node)" to jump to node, and "(error)" to raise an error.
+   # AWS and Azure recommend calling the API restart VM function instead of a restart command from inside the shell.
+   # Function-values will return response(blit_txt) of None/False.
+   # True keys always return the value response, which means it should be a function.
+# "jump": Next node to do once done with cmd and response map. "->" means jump to next node (this is compiled away)
+# "jump_branch": [test cmd, (dict from look for to branch. False is a catch-all)]. Ran last. Generally will jump back if the test is false.
+# "end_node": If True marks the end of the tree.
 
 def default_prompts():
     # Default line end prompts and the needed input (str or function of the pipe).
 
     return {'Pending kernel upgrade':'\n\n\n','continue? [Y/n]':'Y',
             'Continue [yN]':'Y', 'To continue please press [ENTER]':'\n', # the '\n' actually presses enter twice b/c linefeeds are added.
-            'continue connecting (yes/no)?':'Y'}
-
-def apt_error(txt, pkg, cmd_history):
-    # Errors and the recommended response after running an apt cmd.
-    # Dealing with the lock:
-    if 'ps aux | grep -i apt' in str((['']+cmd_history)[-1]):
-        # Forceful cleanup.
-        # Note: sudo rm /var/lib/dpkg/lock would be the nuclear option.
-        lines = list(filter(lambda l: 'grep' not in l and len(l.strip())>0, txt.split('\n')))
-        lines = [re.sub('\s+', ' ', l) for l in lines]
-        ids = [(l+' 000 000').strip().split(' ')[1] for l in lines]
-        ids = list(filter(lambda pid: pid not in ['', '000'], ids))
-        if len(ids)>0:
-            return '\n'.join(['sudo kill -9 '+pid for pid in ids])
-
-    msgs = {'Unable to acquire the dpkg frontend lock':'ps aux | grep -i apt --color=never',
-            "you must manually run 'sudo dpkg --configure -a'":'sudo dpkg --configure -a',
-            'Unable to locate package':'sudo apt update\nsudo apt upgrade',
-            'has no installation candidate':'sudo apt update\nsudo apt upgrade',
-            'Some packages could not be installed. This may mean that you have requested an impossible situation':'sudo apt update\nsudo apt upgrade'}
-    for k in msgs.keys():
-        if k in txt:
-            return msgs[k]
-    return None
-
-def pip_error(txt, pkg, cmd_history):
-    # Scan for errors in pip.
-    # TODO: better handling of --break-system-packages option
-    if "Command 'pip' not found" in txt or 'pip: command not found' in txt:
-        return 'sudo apt install python3-pip'
-    if 'No matching distribution found for' in txt:
-        return 'package not found'
-    if 'Upgrade to the latest pip and try again' in txt:
-        return 'pip3 install --upgrade pip'
-    if '--break-system-packages' in txt and 'This environment is externally managed' in txt:
-        pkg1 = pkg.split(' ')[-1]
-        return f'sudo apt install {pkg1} --break-system-packages'
-    return None
+            'continue connecting (yes/no)?':'Y',
+            #The "Which services should be restarted?" box really, really, REALLY wants to be a GUI. So why is it hanging out in the CLI? Either way its restart VM time.
+            'Which services should be restarted?':'(restart)'}
 
 def ssh_error(e_txt, cmd_history):
-    # Scan for errors in creating the ssh pipe (if making the pipe causes an Exception)
+    # Use this if the SSH protocol raises an Exception.
+    # If an error isn't recognized an Exception will be thrown.
     f_re = lambda plumber: plumber.tubo.remake()
     def banner_err_handle(plumber): # Oh no not this one!
         if not hasattr(plumber, 'SSH_banner_annoy'):
@@ -73,29 +55,85 @@ def ssh_error(e_txt, cmd_history):
             return msgs[k]
     return None
 
-def apt_query(pkg):
-    package_name = pkg.split(' ')[-1]
-    return f'dpkg -s {package_name}'
+############################### The world of apt ###############################
 
-def pip_query(pkg):
-    #https://askubuntu.com/questions/588390/how-do-i-check-whether-a-module-is-installed-in-python-and-install-it-if-needed
-    package_name = pkg.split(' ')[-1]
-    return f'python3\nimport sys\nimport {package_name}\nx=456*789 if "{package_name}" in sys.modules else 123*456\nprint(x)\nquit()'
+def make_snap_nodes(pkg):
+    # Snap installation. Can be used if app installation fails.
+    # f'sudo snap install {ppair[1]} --classic'
+    TODO
 
-def apt_verify(pkg, txt):
-    # Is the pkg installed properly (run after apt_query).
-    if 'install ok installed' in txt or 'install ok unpacked' in txt:
-        return True
-    if 'is not installed' in txt:
-        return False
+def make_apt_nodes(pkg):
+    # Apt installation nodes.
+    pkg = pkg.strip().split(' ')[-1]
+    name_main = 'apt '+pkg+' main'
+    name_test = 'apt '+pkg+' test'
+    name_kill0 = 'apt '+pkg+' kill_apt_lock_node0'
+    name_kill1 = 'apt '+pkg+' kill_apt_lock_node1'
 
-def pip_verify(pkg, txt):
-    # Is the pkg installed properly (run after apt_query).
-    package_name = pkg.split(' ')[-1]
-    if 'Successfully installed ' in txt or 'Requirement already satisfied' in txt:
-        return True # Queries by re-running the installation cmd
-    if str(456*789) in txt:
-        return True # Our Python-based queries.
-    if str(123*456) in txt or f"ModuleNotFoundError: No module named '{package_name}'" in txt:
-        return False # Our Python-based queries.
-    return None
+    #more_responses[f'Try "snap install {ppair[1]}"'] = f'sudo snap install {ppair[1]} --classic' # Classic gives snap full access, which is OK since VMs can be torn down if anything breaks.
+    response_map = {"you must manually run 'sudo dpkg --configure -a'":'sudo dpkg --configure -a',
+                    'Unable to locate package':'sudo apt update\nsudo apt upgrade',
+                    f'Try "snap install {pkg}"':lambda _:TODO,
+                    'has no installation candidate':'sudo apt update\nsudo apt upgrade',
+                    'Some packages could not be installed. This may mean that you have requested an impossible situation':'sudo apt update\nsudo apt upgrade'}
+    response_map = {**default_prompts(), **response_map}
+    kl_node_name = pkg+' kill_lock_node' # Lock error => kill process having lock. A VM restart may also work.
+    response_map['Unable to acquire the dpkg frontend lock'] = f'(node){kl_node_name}'
+
+    nodes = {}
+    nodes[name_main] = {'cmd':f'sudo apt install {pkg}', 'jump':name_test}
+    nodes[name_kill0] = {'cmd':'ps aux | grep -i apt --color=never', 'jump':name_kill1}
+    def _krespond(txt):
+        lines = list(filter(lambda l: 'grep' not in l and len(l.strip())>0, txt.split('\n')))
+        lines = [re.sub('\s+', ' ', l) for l in lines]
+        ids = [(l+' 000 000').strip().split(' ')[1] for l in lines]
+        ids = list(filter(lambda pid: pid not in ['', '000'], ids))
+        if len(ids)>0:
+            return '\n'.join(['sudo kill -9 '+pid for pid in ids])
+    nodes[name_kill1] = {'response_map':{True:_krespond}, 'jump':name_main}
+
+    nodes[name_test] = {'jump_branch':[f'dpkg -s {pkg}', False:name_main, 'is not installed':name_main, 'install ok installed':'->', 'install ok unpacked':'->']}
+
+    for nk in nodes.keys(): # Common response map.
+        nodes[nk]['response_map'] = {**response_map, **nodes[nk].get('response_map', {})}
+
+    return nodes, name_main
+
+def make_pip_nodes(verify_name='default'):
+    # Verification of installation can be disabled with verift_name = False.
+    pkg = pkg.strip().split(' ')[-1]
+    response_map = {}
+    response_map["Command 'pip' not found"] = 'sudo apt install python3-pip'
+    response_map['pip: command not found'] = 'sudo apt install python3-pip'
+    response_map['No matching distribution found for'] = '(error)package not found'
+    response_map['Upgrade to the latest pip and try again'] = 'pip3 install --upgrade pip'
+    response_map[lambda txt:'--break-system-packages' in txt and 'This environment is externally managed' in txt] = f'sudo apt install {pkg} --break-system-packages'
+
+    if verify_name == 'default':
+        verify_name = pkg # Verify_name will have to occasionally be changed. Use "sys" to disable verification.
+        if '-' in pkg or '_' in pkg:
+            raise Exception('Not sure if the default verify name will work for pacakges with _ or - in thier name such as: '+pkg)
+
+    name_main = 'pip3 '+pkg+' main'
+    name_test = 'pip3 '+pkg+' test'
+    nodes = {}
+    nodes[name_main] = {'cmd':f'sudo apt install {pkg}', 'jump':name_test if verify_name else '->'}
+    if verify_name:
+        test_cmd = f'python3\npython\nimport sys\nimport {verify_name}\nx=456*789 if "{verify_name}" in sys.modules else 123*456\nprint(x)\nquit()'
+        nodes[name_test] = {'jump_branch': [test_cmd, {str(456*789):'->', str(123*456):name_main, False:name_main}]}
+
+    for nk in nodes.keys(): # Common response map.
+        nodes[nk]['response_map'] = {**response_map, **nodes[nk].get('response_map', {})}
+
+    return nodes, name_main
+
+################## Make a simple node tree for the plumber #####################
+
+def compile_package_cmd(package_cmd, verify_pip=True):
+    ty = package_cmd.strip().split(' ')[0]
+    if ty=='apt':
+        return make_apt_nodes(package_cmd)
+    elif ty=='pip' or ty == 'pip3':
+        return make_pip_nodes(package_cmd, verify=verify_name)
+    else:
+        raise Exception('For now, only "apt" and "pip" packages are supported.')

@@ -3,46 +3,98 @@ import time, traceback
 from . import eye_term, colorful, deep_stack
 from . import plumb_packs
 
+def compile_tasks(tasks, common_response_map, include_apt_init):
+    # Compiles tasks into nodes, it is easier to send a list of tasks.
+    # Tasks can have:
+    #    'packages': Packages to install such as "pip numpy". Will be converted into nodes and tests.
+    #    'commands': Generic commands to run.
+    #    'lambda': f(plumber) => string, None, or True; can use plumber.lambda_state
+                   # string = send the string.
+                   # None = wait.
+                   # True = we are done.
+                   # Generic Turing-complete escape hatch so it runs every step.
+    #    'response_map': Response to substring of last line of tasks. Combines with a global response_map option.
+    #    'tests': [cmd, response] pairs in addition to package installation tests; if any fail the whole task is retried.
+    if type(tasks) is dict: # Assume this means there is a single task
+        tasks = [tasks]
+
+    if include_apt_init:
+        t0 = {'cmd':'sudo apt update\nsudo apt upgrade\n(restart)'}
+        tasks = [t0]+tasks
+
+    nodes = {}
+    node_begin_ends = [] # [begin, end0, end1, ...]. In order, used to compile "->" into names.
+    for task in tasks:
+        add_to_ea_node = {'response_map':{**common_response_map, **task.get('response_map',{})}}
+        if 'lambda' in task:
+            add_to_ea_node['lambda'] = task['lambda']
+        if len(set(task.keys())-set(['packages', 'commands', 'tests', 'lambda']))>0:
+            raise Exception('Task must have only keys packages, commands, tests, lambda')
+        node_begin = None
+        for p in task.get('packages', []):
+            nodes1, n0 = plumb_packs.compile_package_cmd(p)
+            if node_begin is None:
+                node_begin = n0
+            pk_ends = list(filter(lambda nd: nd.get('end_node', False), node_ends1))
+            if len(pk_ends)==0:
+                raise Exception('No end_node found for the compiled package command.')
+            for ni in pk_ends:
+                del nodes1[ni]['end_node']
+                nodes1[ni]['jump'] = '->'
+            node_begin_ends.append([n0]+pk_ends)
+            for nk in nodes1:
+                nodes1[nk].update(add_to_ea_node)
+            nodes.update(nodes1)
+        for cmd in task.get('commands', []):
+            node_name = 'cmd/'+cmd
+            if node_begin is None:
+                node_begin = node_name
+            nd = {'cmd':cmd, 'jump':'->'}
+            nd.update(add_to_ea_node)
+            nodes[node_name] = nd
+            node_begin_ends.append([node_name, node_name])
+        for t in task.get('tests',[]):
+            node_name = 'test/'+t[0]
+            if node_begin is None:
+                raise Exception('Tests can only be used if there is at least one package or command.')
+            nodes[node_name] = {'jump_branch':[t[0], {t[1]:'->', False:node_begin}]}
+            nodes[node_name].update(add_to_ea_node)
+
+    for i in range(len(node_begin_ends)-1): # Link endings up to beginnings by replacing '->' keys.
+        begin1 = node_begin_ends[i+1][0]
+        for e in node_begin_ends[i][1:]:
+            nd = nodes[e]
+            if 'jump' not in nd and 'jump_branch' not in nd: # All nodes default to jump.
+                nd['jump'] = begin1
+            if 'jump' in nd and nd['jump'] == '->':
+                nd['jump'] = begin1
+            if 'jump_branch' in nd:
+                for ky in nd['jump_branch'][1].keys():
+                    if nd['jump_branch'][1][ky] = '->':
+                        nd['jump_branch'][1][ky] = begin1
+
+    for ky in node_begin_ends[-1][1:]:
+        nodes[ky]['end_node'] = True
+
+    return nodes, node_begin_ends[0][0]
+
 try:
     interactive_error_mode # Debug tool.
 except:
     interactive_error_mode = False
 
-def _last_line(txt):
-    return txt.replace('\r\n','\n').split('\n')[-1]
-
 def get_prompt_response(txt, response_map):
     # "Do you want to continue (Y/n); input AWS user name; etc"
+    def _last_line(txt):
+        return txt.replace('\r\n','\n').split('\n')[-1]
     lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
     # (A few false positive inputs is unlikely to cause trouble).
     for otxt in [lline, txt]:
         for k in response_map.keys():
-            if k in otxt:
-                if callable(response_map[k]):
-                    return response_map[k](otxt)
-                return response_map[k]
-
-#def cmd_list_fixed_prompt(tubo, cmds, response_map, timeout=16): # LIkely deprecated fn.
-#    TODO #get_prompt_response(txt, response_map)
-#    x0 = tubo.blit()
-#    def _check_line(_tubo, txt):
-#        lline = _last_line(_tubo.blit(include_history=False))
-#        return txt in lline
-#    line_end_poll = lambda _tubo: looks_like_blanck_prompt(_last_line(_tubo.blit(include_history=False)))
-#    f_polls = {'_vanilla':line_end_poll}
-#
-#    for k in response_map.keys():
-#        f_polls[k] = lambda _tubo, txt=k: _check_line(_tubo, txt)
-#    for cmd in cmds:
-#        _out, _err, poll_info = tubo.API(cmd, f_polls, timeout=timeout)
-#        while poll_info and poll_info != '_vanilla':
-#            txt = response_map[poll_info]
-#            if type(txt) is str:
-#                _,_, poll_info = tubo.API(txt, f_polls, timeout=timeout)
-#            else:
-#                txt(tubo); break
-#    x1 = tubo.blit(); x = x1[len(x0):]
-#    return tubo, x
+            if (callable(k) and k(otxt)) or (k in otxt or (k is True and otxt == txt)):
+                x = response_map[k](otxt) if callable(response_map[k]) else response_map[k]
+                if x:
+                    return x
 
 def loop_try(f, f_catch, msg, delay=4):
     # Waiting for something? Keep looping untill it succedes!
@@ -109,47 +161,6 @@ def maybe_interactive_error(plumber, e):
         msg = msg1 if (not msg0) else deep_stack.concat(msg, msg1)
         deep_stack.raise_from_message(msg)
 
-def compile_tasks(tasks):
-    # Compiles tasks into seperate steps and tests.
-    # They solve tasks in order. Each task can have:
-       # 'packages': Packages to install (includes built-in tests to make sure the packages actually installed).
-       # 'commands': Other cmds to run.
-       # 'tests': Tests to run; if they fail the cmds are re-tried up to a few times.
-    # This compiles to a list:
-    #  ['command', the_cmd]
-    #  ['test', test_cmd, test_results]
-    #  ['checkpoint']
-    #  If all tests fail.
-    # Multible tests can be splayed out as well.
-    more_responses = {}
-    out = []
-    if type(tasks) is dict:
-        tasks = [tasks]
-    for task in tasks:
-        if len(set(task.keys())-set(['packages', 'commands', 'tests']))>0:
-            raise Exception('Task must have only keys packages, commands, tests.')
-        for p in task.get('packages', []):
-            pkg = p.strip(); ppair = pkg.split(' ')
-            if ppair[0] == 'apt':
-                _quer = plumb_packs.apt_query; _err = plumb_packs.apt_error; _ver = plumb_packs.apt_verify
-                _cmd = 'sudo apt install '+ppair[1]
-                #No apt package "foo-bar", but there is a snap with that name.
-                #Try "snap install foo-bar"
-                more_responses[f'Try "snap install {ppair[1]}"'] = f'sudo snap install {ppair[1]} --classic' # Classic gives snap full access, which is OK since VMs can be torn down if anything breaks.
-            elif ppair[0] == 'pip' or ppair[0] == 'pip3':
-                _quer = plumb_packs.pip_query; _err = plumb_packs.pip_error; _ver = plumb_packs.pip_verify
-                _cmd = 'pip3 install '+ppair[1]
-            else:
-                raise Exception(f'Package must be of the format "apt foo" or "pip3 bar" (not "{pkg}"); no other managers are currently supported.')
-            out.append(['command', _cmd])
-            if (ppair[0] != 'pip' and ppair[0] != 'pip3') or ('_' not in pkg and '-' not in pkg): # Not sure how to handle pip and _.
-                out.append(['test', _quer(pkg), lambda txt: _ver(pkg, txt)])
-        for cmd in task.get('commands', []):
-            out.append(['command', cmd])
-        for t in task.get('tests',[]):
-            out.append(['test', t[0], t[1]])
-    return out, more_responses
-
 def bash_awake_test():
     TODO
 
@@ -158,7 +169,7 @@ def python_awake_test():
 
 class Plumber():
     # Plumbers are designed to perform *and verify* complex commands that require lots of dealing with mess.
-    def __init__(self, tubo, tasks, response_map, fn_override=None, dt=2.0):
+    def __init__(self, tubo, tasks, common_response_map, dt=2.0, include_apt_init=True):
         # test_pairs is a vector of [cmd, expected] pairs.
         if tubo.closed: # Make sure the pipe is open.
             tubo = tubo.remake()
@@ -170,19 +181,16 @@ class Plumber():
 
         #self.err_counts = {} # Useful?
         self.dt = dt # Time-step when we need to wait, if the cmd returns faster we will respond faster.
-        self.fn_override = fn_override
         self.cmd_history = []
         self.tubo = tubo
         self.tubo_history = [tubo] # Always includes the current tubo.
         self.nsteps = 0
-        self.task_packet_frusteration = 0
+        self.steps_this_node = 0
 
-        self.remaining_tasks, more_responses = compile_tasks(tasks)
-        self.response_map = {**more_responses, **response_map}
-        self.rem_task_ix = 0
-        self.completed_tasks = []
-
-        self.mode = 'green' # Finite state machine.
+        self.nodes, self.current_node = compile_tasks(tasks, common_response_map, include_apt_init)
+        self.lambda_state = None
+        self.node_state = 0 # For jump_branch nodes.
+        self.node_visit_counts = {} # Too many revisits is a sign of a possible infinite loop.
 
     def _sshe(self, e):
         # Throws e if not a recognized "SSH pipe malfunctioning" error.
@@ -192,15 +200,6 @@ class Plumber():
         if fix_f is None: # Only errors which can be thrown by ssh unreliabilities aren't thrown.
             maybe_interactive_error(self, e)
         return fix_f
-
-    def send_cmd(self, _cmd, add_to_packets=True):
-        # Preferable than tubo.send since we store cmd_history and catch SSH errors.
-        try:
-            self.tubo.send(_cmd, add_to_packets=add_to_packets)
-        except Exception as e:
-            self.pipe_fix_fn = self._sshe(e)
-            if self.tubo.printouts:
-                colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
 
     def restart_vm(self, penalize=True):
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
@@ -212,10 +211,26 @@ class Plumber():
         if penalize:
             self.num_restarts = self.num_restarts+1
 
+    def send_cmd(self, _cmd, add_to_packets=True):
+        # Preferable than tubo.send since we store cmd_history and catch SSH errors.
+        _cmd1 = _cmd.replace('(restart)','').strip()
+        if _cmd =='\n':
+            _cmd1 = _cmd
+
+        if len(_cmd1)>0:
+            try:
+                self.tubo.send(_cmd1, add_to_packets=add_to_packets)
+            except Exception as e:
+                self.pipe_fix_fn = self._sshe(e)
+                if self.tubo.printouts:
+                    colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
+        if '(restart)' in _cmd: # Restart the virtual machine.
+            self.restart_vm(penalize=False)
+
     def _restart_if_too_loopy(self, not_pipe_related=None):
-        n = self.task_packet_frusteration
+        n = self.node_visit_counts.get(self.current_node, 0)
         slow = time.time() - self.last_restart_time > 90
-        if (slow and n >= 3) or (not_pipe_related and n>8):
+        if (slow and n >= 4) or (not_pipe_related and n>8):
             if self.tubo.printouts:
                 colorful.bprint('Installation may be stuck in a loop, restarting machine')
             self.restart_vm()
@@ -225,7 +240,7 @@ class Plumber():
         # Responses based on the blit alone, including error handling.
         # None means that there is no need to give a specific response.
         txt = self.tubo.blit(False)
-        z = get_prompt_response(txt, self.response_map) # Do this last in case there is a false positive that actually is an error.
+        z = get_prompt_response(txt, self.nodes[self.current_node].get('response_map',{})) # Do this last in case there is a false positive that actually is an error.
         if z is not None:
             return z
         return None
@@ -252,44 +267,23 @@ class Plumber():
             self.send_cmd('Y\necho waiting_for_shell', add_to_packets=False) # Breaking the ssh pipe will make this cause errors.
         return False
 
-    def step_tests(self, the_cmd, look_for_this):
-        # False means failed, None means in progress.
-        if self.mode == 'green':
-            self.send_cmd(the_cmd)
-            self.mode = 'magenta'
-            return None
-        elif self.mode == 'magenta':
-            self.mode = 'green' # Another reset loop if we fail.
-            txt = self.tubo.blit(False)
-            if type(look_for_this) is str or callable(look_for_this):
-                look_for_this = [look_for_this]
-
-            miss = False
-            for look_for in look_for_this:
-                if callable(look_for):
-                    if look_for(txt):
-                        continue
-                elif look_for in txt:
-                    continue
-                miss = True
-            if not miss:
-                return True
-            return False
-        else:
-            self.mode = 'green'
-            return None
-        return None
+    def set_node(self, node_name):
+        if node_name == '->':
+            raise Exception('The node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
+        self.current_node = node_name
+        self.steps_this_node = 0
+        self.node_visit_counts[node_name] = self.node_visit_counts.get(node_name, 0)+1
+        self.lambda_state = None
+        self.node_state = 0
+        if self.node_visit_counts[node_name]>6:
+            raise Exception('Likely stuck in a loop going between nodes, current node = ', node_name)
 
     def step(self):
-        if 'Which services should be restarted?' in self.tubo.blit(include_history=False):
-            # This menu appears during installation and is *very annoying*, so it makes sense to restart the vm.
-            colorful.bprint('The "Which services should be restarted?" box really, really, REALLY wants to be a GUI. So why is it hanging out in the CLI? Either way its restart VM time.')
-            time.sleep(1.5)
-            self.restart_vm(penalize=False) # Do not count it toward the max restarts.
+        self.nsteps += 1
+        self.steps_this_node += 1
+        if self.steps_this_node>8:
+            raise Exception('Stuck in a single node most likely node name = ', self.current_node)
 
-        if self.fn_override is not None: # For those occasional situations where complete control of everything is needed.
-            if self.fn_override(self):
-                return False
         t0 = time.time()
         try:
             self.tubo.ensure_init()
@@ -326,47 +320,75 @@ class Plumber():
         if not self.short_wait():
             return False
 
-        # Restart if we seem stuck in a loop:
-        send_this = self.blit_based_response() # These can introject randomally (if i.e. the SSH pipe goes down and need a reboot).
-        self._restart_if_too_loopy()
+        # Logic of what to do for the current node:
+        cur_node = self.nodes[self.current_node]
+        if 'lambda' in cur_node:
+            x = cur_node.lambda(self)
+            if x == '->': # Jump to next node.
+                if cur_node.get('end_node', False):
+                    return True
+                if 'jump' in cur_node:
+                    self.set_node(cur_node['jump'])
+                if 'jump_branch' in cur_node:
+                    for ky in cur_node['jump_branch'][1].keys():
+                        if ky:
+                            self.set_node(cur_node['jump_branch'][1][ky])
+                raise Exception('Lambda returns a jump condition but the node does not provide a node name to jump to.')
+            elif not x:
+                pass # Do nothing, keep going with this step.
+            elif x == 'break' or x 'continue':
+                return False # Restart this step.
+            elif x == 'restart': # Alternative to restarting within the lambda function.
+                self.restart_vm(penalize=False)
+            else:
+                raise Exception('Unrecognized output of a generic lambda.')
 
-        if callable(send_this): # Sometimes the response is a function of the plumber, not a simple txt prompt.
+        # Response map which can introject randomally (i.e. the machine says "do you want to continue [Y/n].")
+        send_this = self.blit_based_response()
+        self._restart_if_too_loopy()
+        if not send_this:
+            pass
+        elif callable(send_this): # Rare to return a function, generally lambda is preferred.
             send_this(self)
-            self.nsteps += 1
             return False
+        elif send_this.startswith('(node)'):
+            self.set_node(send_this.replace('(node)','').strip())
+        elif send_this.startswith('(error)'):
+            raise Exception(send_this.replace('(error)','').strip())
         elif send_this is not None:
             self.send_cmd(send_this)
-            self.nsteps += 1
             return False
-        if len(self.remaining_tasks)<=self.rem_task_ix: # All done!
-            self.completed_tasks.extend(self.remaining_tasks)
-            self.remaining_tasks = []
-            return True # We are done with all the tasks and tests thereof.
 
-        tsk = self.remaining_tasks[self.rem_task_ix]
-        ty = tsk[0].lower()
-        if ty == 'checkpoint':
-            self.completed_tasks.extend(self.remaining_tasks[0:self.rem_task_ix])
-            self.remaining_tasks = self.remaining_tasks[self.rem_task_ix+1:]
-            self.rem_task_ix = 0
-        elif ty == 'command' or ty == 'cmd':
-            self.send_cmd(tsk[1])
-            self.rem_task_ix = self.rem_task_ix+1
-            self.nsteps += 1
-        elif ty == 'test':
-            tresult = self.step_tests(tsk[1], tsk[2])
-            if tresult:
-                self.rem_task_ix = self.rem_task_ix+1
-            elif tresult is False: # None isn't a fail, but False is.
-                colorful.bprint('Test for this task failed, retrying task.')
-                self.task_packet_frusteration += 1
-                self.rem_task_ix = 0
-                if self.task_packet_frusteration>16:
-                    raise Exception('Cant get the test working.')
-            self.nsteps += 1
-        else:
-            raise Exception('Unknown (compiled) task type: '+ty)
-        return False
+        if 'cmd' in cur_node and self.node_state==0:
+            self.node_state = 1
+            self.send_cmd(cur_node['cmd'])
+            return False
+
+        if 'jump_branch' in cur_node and 'jump' in cur_node:
+            raise Exception('Only one of "jump_branch" or "jump" may be specified.')
+        if 'jump' in cur_node:
+            self.set_node(cur_node['jump'])
+            return False
+        if 'jump_branch' in cur_node: # The main way to test nodes.
+            if self.node_state==1:
+                self.send_cmd(cur_node['jump_branch'][0])
+                self.node_state = 2
+            elif self.node_state == 2:
+                txt = self.tubo.blit(False)
+                set_node = False
+                for ky in cur_node['jump_branch'][1].keys():
+                    if (callable(ky) and ky(txt)) or (type(ky) is str and ky in txt): # Functions are hashable and can be used for dict keys.
+                        self.set_node(cur_node['jump_branch'][1][ky])
+                        set_node = True
+                        break
+                if not set_node:
+                    for falsey in [None, False]:
+                        if falsey in cur_node['jump_branch'][1]:
+                            self.set_node(cur_node['jump_branch'][1][falsey])
+
+            return False
+
+        return cur_node.get('end_node', False) # All done when we reach the ending node.
 
     def run(self):
         while not self.step():
