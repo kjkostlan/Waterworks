@@ -92,7 +92,7 @@ def make_apt_nodes(pkg):
             return '\n'.join(['sudo kill -9 '+pid for pid in ids])
     nodes[name_kill1] = {'response_map':{True:_krespond}, 'jump':name_main}
 
-    nodes[name_test] = {'jump_branch':[f'dpkg -s {pkg}', False:name_main, 'is not installed':name_main, 'install ok installed':'->', 'install ok unpacked':'->']}
+    nodes[name_test] = {'jump_branch':[f'dpkg -s {pkg}', {False:name_main, 'is not installed':name_main, 'install ok installed':'->', 'install ok unpacked':'->'}]}
 
     for nk in nodes.keys(): # Common response map.
         nodes[nk]['response_map'] = {**response_map, **nodes[nk].get('response_map', {})}
@@ -108,6 +108,8 @@ def make_pip_nodes(verify_name='default'):
     response_map['No matching distribution found for'] = '(error)package not found'
     response_map['Upgrade to the latest pip and try again'] = 'pip3 install --upgrade pip'
     response_map[lambda txt:'--break-system-packages' in txt and 'This environment is externally managed' in txt] = f'sudo apt install {pkg} --break-system-packages'
+
+    response_map = {**default_prompts(), **response_map}
 
     if verify_name == 'default':
         verify_name = pkg # Verify_name will have to occasionally be changed. Use "sys" to disable verification.

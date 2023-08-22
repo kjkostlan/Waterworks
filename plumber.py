@@ -19,7 +19,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
         tasks = [tasks]
 
     if include_apt_init:
-        t0 = {'cmd':'sudo apt update\nsudo apt upgrade\n(restart)'}
+        t0 = {'commands':['sudo apt update\nsudo apt upgrade']}#\n(restart)'}
         tasks = [t0]+tasks
 
     nodes = {}
@@ -28,8 +28,9 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
         add_to_ea_node = {'response_map':{**common_response_map, **task.get('response_map',{})}}
         if 'lambda' in task:
             add_to_ea_node['lambda'] = task['lambda']
-        if len(set(task.keys())-set(['packages', 'commands', 'tests', 'lambda']))>0:
-            raise Exception('Task must have only keys packages, commands, tests, lambda')
+        unrecognized_kys = set(task.keys())-set(['packages', 'commands', 'tests', 'lambda'])
+        if len(unrecognized_kys)>0:
+            raise Exception('Task must have only keys packages, commands, tests, lambda, not: '+str(unrecognized_kys))
         node_begin = None
         for p in task.get('packages', []):
             nodes1, n0 = plumb_packs.compile_package_cmd(p)
@@ -45,7 +46,10 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             for nk in nodes1:
                 nodes1[nk].update(add_to_ea_node)
             nodes.update(nodes1)
-        for cmd in task.get('commands', []):
+        commands = task.get('commands', [])
+        if type(commands) is str:
+            commands = [commands]
+        for cmd in commands:
             node_name = 'cmd/'+cmd
             if node_begin is None:
                 node_begin = node_name
@@ -70,7 +74,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
                 nd['jump'] = begin1
             if 'jump_branch' in nd:
                 for ky in nd['jump_branch'][1].keys():
-                    if nd['jump_branch'][1][ky] = '->':
+                    if nd['jump_branch'][1][ky] == '->':
                         nd['jump_branch'][1][ky] = begin1
 
     for ky in node_begin_ends[-1][1:]:
@@ -323,7 +327,7 @@ class Plumber():
         # Logic of what to do for the current node:
         cur_node = self.nodes[self.current_node]
         if 'lambda' in cur_node:
-            x = cur_node.lambda(self)
+            x = cur_node['lambda'](self)
             if x == '->': # Jump to next node.
                 if cur_node.get('end_node', False):
                     return True
@@ -336,7 +340,7 @@ class Plumber():
                 raise Exception('Lambda returns a jump condition but the node does not provide a node name to jump to.')
             elif not x:
                 pass # Do nothing, keep going with this step.
-            elif x == 'break' or x 'continue':
+            elif x == 'break' or x == 'continue':
                 return False # Restart this step.
             elif x == 'restart': # Alternative to restarting within the lambda function.
                 self.restart_vm(penalize=False)
