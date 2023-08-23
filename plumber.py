@@ -106,10 +106,19 @@ def get_prompt_response(txt, response_map):
     def _last_line(txt):
         return txt.replace('\r\n','\n').split('\n')[-1]
     lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
-    # (A few false positive inputs is unlikely to cause trouble).
+    # (A few false positive inputs is unlikely to cause trouble so long as they don't shadow the other inputs).
     for otxt in [lline, txt]:
         for k in response_map.keys():
-            if (callable(k) and k(otxt)) or (k in otxt or (k is True and otxt == txt)):
+            hit = False
+            if callable(k) and k(otxt):
+                hit = True
+            elif type(k) is bool:
+                hit = k
+            elif type(k) is str:
+                hit = k in otxt
+            else:
+                raise Exception(str(k)+' must be a callable, bool, or string, not a: '+str(type(k)))
+            if hit:
                 x = response_map[k](otxt) if callable(response_map[k]) else response_map[k]
                 if x:
                     return x
@@ -203,7 +212,7 @@ class Plumber():
         self.tubo = tubo
         self.tubo_history = [tubo] # Always includes the current tubo.
         self.nsteps = 0
-        self.steps_this_node = 0
+        self.sent_cmds_this_node = 0
 
         self.nodes, self.current_node = compile_tasks(tasks, common_response_map, include_apt_init)
         debug_print_nodes = False
@@ -233,6 +242,7 @@ class Plumber():
         self.tubo.add_empty_packet()
         self.rcounts_since_restart = {}
         self.last_restart_time = time.time()
+        self.sent_cmds_this_node = self.sent_cmds_this_node+1
         if penalize:
             self.num_restarts_this_node = self.num_restarts_this_node+1
 
@@ -251,6 +261,8 @@ class Plumber():
                     colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
         if '(restart)' in _cmd: # Restart the virtual machine.
             self.restart_vm(penalize=False)
+        else:
+            self.sent_cmds_this_node = self.sent_cmds_this_node+1
 
     def _restart_if_too_loopy(self, not_pipe_related=None):
         n = self.node_visit_counts.get(self.current_node, 0)
@@ -300,7 +312,7 @@ class Plumber():
         if node_name == '->':
             raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
         self.current_node = node_name
-        self.steps_this_node = 0
+        self.sent_cmds_this_node = 0
         self.node_visit_counts[node_name] = self.node_visit_counts.get(node_name, 0)+1
         self.lambda_state = None
         self.node_state = 0
@@ -310,7 +322,7 @@ class Plumber():
 
     def step(self):
         # Returns True if the entire process is done.
-        if self.steps_this_node>8: # Steps does not include short_wait if we do nothing.
+        if self.sent_cmds_this_node>12: # Steps does not include short_wait if we do nothing.
             print('<|<|<| Current node stuck in loop:', self.nodes[self.current_node], '|>|>|>')
             raise Exception('Stuck in a single node most likely node name = ', self.current_node)
 
@@ -353,7 +365,6 @@ class Plumber():
                 colorful.bprint('Long wait time for the shell to resurface, restaring vm.')
                 self.restart_vm()
             return False
-        self.steps_this_node += 1
         self.nsteps += 1
 
         # Logic of what to do for the current node:

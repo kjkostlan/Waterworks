@@ -59,7 +59,7 @@ def ssh_error(e_txt, cmd_history):
 
 def make_snap_nodes(pkg):
     # Snap installation. Can be used if app installation fails.
-    # f'sudo snap install {ppair[1]} --classic'
+    # f'sudo snap install {ppair[1]} --classic' # Gives full access.
     TODO
 
 def make_apt_nodes(pkg):
@@ -70,7 +70,6 @@ def make_apt_nodes(pkg):
     name_kill0 = 'apt '+pkg+' kill_apt_lock_node0'
     name_kill1 = 'apt '+pkg+' kill_apt_lock_node1'
 
-    #more_responses[f'Try "snap install {ppair[1]}"'] = f'sudo snap install {ppair[1]} --classic' # Classic gives snap full access, which is OK since VMs can be torn down if anything breaks.
     response_map = {"you must manually run 'sudo dpkg --configure -a'":'sudo dpkg --configure -a',
                     'Unable to locate package':'sudo apt update\nsudo apt upgrade',
                     f'Try "snap install {pkg}"':lambda _:TODO,
@@ -99,7 +98,7 @@ def make_apt_nodes(pkg):
 
     return nodes, name_main
 
-def make_pip_nodes(verify_name='default'):
+def make_pip_nodes(pkg, verify_name='default'):
     # Verification of installation can be disabled with verift_name = False.
     pkg = pkg.strip().split(' ')[-1]
     response_map = {}
@@ -131,11 +130,11 @@ def make_pip_nodes(verify_name='default'):
 
 ################## Make a simple node tree for the plumber #####################
 
-def compile_package_cmd(package_cmd, verify_pip=True):
+def compile_package_cmd(package_cmd, verify_name='default'):
     ty = package_cmd.strip().split(' ')[0]
     if ty=='apt':
         return make_apt_nodes(package_cmd)
     elif ty=='pip' or ty == 'pip3':
-        return make_pip_nodes(package_cmd, verify=verify_name)
+        return make_pip_nodes(package_cmd, verify_name=verify_name)
     else:
         raise Exception('For now, only "apt" and "pip" packages are supported.')
