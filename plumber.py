@@ -36,7 +36,8 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             nodes1, n0 = plumb_packs.compile_package_cmd(p)
             if node_begin is None:
                 node_begin = n0
-            pk_ends = list(filter(lambda nd: nd.get('end_node', False), node_ends1))
+            # This bit of code "uncaps" the ends so it can be glued into a larger pipeline:
+            pk_ends = list(filter(lambda nd: nodes1[nd].get('end_node', False), nodes1.keys()))
             if len(pk_ends)==0:
                 raise Exception('No end_node found for the compiled package command.')
             for ni in pk_ends:
@@ -192,6 +193,10 @@ class Plumber():
         self.steps_this_node = 0
 
         self.nodes, self.current_node = compile_tasks(tasks, common_response_map, include_apt_init)
+        debug_print_nodes = False
+        if debug_print_nodes:
+            print('<<<Nodes:', self.nodes, '>>>', '<<<Tasks:', self.nodes, '>>>')
+
         self.lambda_state = None
         self.node_state = 0 # For jump_branch nodes.
         self.node_visit_counts = {} # Too many revisits is a sign of a possible infinite loop.
@@ -273,7 +278,7 @@ class Plumber():
 
     def set_node(self, node_name):
         if node_name == '->':
-            raise Exception('The node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
+            raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
         self.current_node = node_name
         self.steps_this_node = 0
         self.node_visit_counts[node_name] = self.node_visit_counts.get(node_name, 0)+1
@@ -283,9 +288,7 @@ class Plumber():
             raise Exception('Likely stuck in a loop going between nodes, current node = ', node_name)
 
     def step(self):
-        self.nsteps += 1
-        self.steps_this_node += 1
-        if self.steps_this_node>8:
+        if self.steps_this_node>8: # Steps does not include short_wait if we do nothing.
             raise Exception('Stuck in a single node most likely node name = ', self.current_node)
 
         t0 = time.time()
@@ -322,7 +325,12 @@ class Plumber():
             time.sleep(sleep_time)
 
         if not self.short_wait():
+            if self.tubo.drought_len()>96:
+                colorful.bprint('Long wait time for the shell to resurface, restaring vm.')
+                self.restart_vm()
             return False
+        self.steps_this_node += 1
+        self.nsteps += 1
 
         # Logic of what to do for the current node:
         cur_node = self.nodes[self.current_node]
@@ -368,11 +376,18 @@ class Plumber():
             self.send_cmd(cur_node['cmd'])
             return False
 
+        def _setorend(nd): # End nodes are allowed to have '->' jumps which indicate we are all done.
+            if nd == '->' and cur_node.get('end_node', False):
+                return nd
+            else:
+                self.set_node(nd)
+                return nd
+
         if 'jump_branch' in cur_node and 'jump' in cur_node:
             raise Exception('Only one of "jump_branch" or "jump" may be specified.')
         if 'jump' in cur_node:
-            self.set_node(cur_node['jump'])
-            return False
+            set_node = _setorend(cur_node['jump'])
+            return bool(set_node == '->' and cur_node.get('end_node', False))
         if 'jump_branch' in cur_node: # The main way to test nodes.
             if self.node_state==1:
                 self.send_cmd(cur_node['jump_branch'][0])
@@ -382,17 +397,15 @@ class Plumber():
                 set_node = False
                 for ky in cur_node['jump_branch'][1].keys():
                     if (callable(ky) and ky(txt)) or (type(ky) is str and ky in txt): # Functions are hashable and can be used for dict keys.
-                        self.set_node(cur_node['jump_branch'][1][ky])
-                        set_node = True
+                        set_node = _setorend(cur_node['jump_branch'][1][ky])
                         break
                 if not set_node:
                     for falsey in [None, False]:
                         if falsey in cur_node['jump_branch'][1]:
-                            self.set_node(cur_node['jump_branch'][1][falsey])
+                            set_node = _setorend(cur_node['jump_branch'][1][falsey])
+            return bool(set_node == '->' and cur_node.get('end_node', False))
 
-            return False
-
-        return cur_node.get('end_node', False) # All done when we reach the ending node.
+        raise Exception('The node specified no "jump" or "jump_branch", and is not an "end_node".')
 
     def run(self):
         while not self.step():
