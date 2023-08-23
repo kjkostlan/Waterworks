@@ -193,8 +193,8 @@ class Plumber():
             tubo = tubo.remake()
         self.last_restart_time = -1e100 # Wait for it to restart!
         self.rcounts_since_restart = {}
-        self.num_restarts = 0
-        self.max_restarts = 3
+        self.num_restarts_this_node = 0
+        self.max_restarts_per_node = 3
         self.pipe_fix_fn = None
 
         #self.err_counts = {} # Useful?
@@ -227,14 +227,14 @@ class Plumber():
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
         if self.tubo.printouts:
             colorful.bprint('Restarting VM')
-        if penalize and self.num_restarts==self.max_restarts:
+        if penalize and self.num_restarts_this_node==self.max_restarts_per_node:
             maybe_interactive_error(self, Exception('Max restarts exceeded, there appears to be an infinite loop that cant be broken.'))
         self.tubo.restart_fn()
         self.tubo.add_empty_packet()
         self.rcounts_since_restart = {}
         self.last_restart_time = time.time()
         if penalize:
-            self.num_restarts = self.num_restarts+1
+            self.num_restarts_this_node = self.num_restarts_this_node+1
 
     def send_cmd(self, _cmd, add_to_packets=True):
         # Preferable than tubo.send since we store cmd_history and catch SSH errors.
@@ -289,9 +289,10 @@ class Plumber():
             else:
                 break
         if self.tubo.drought_len()>8:
-            debug_print_node = True
-            if debug_print_node:
+            debug_prints = True
+            if debug_prints:
                 print('<|<|<| Current node stuck waiting:', self.nodes[self.current_node], '|>|>|>')
+                print('Drought len:', self.tubo.drought_len(), ' len of blit:', len(self.tubo.blit(include_history=False)), ' len blit all:', len(self.tubo.blit(include_history=True)))
             self.send_cmd('Y\necho waiting_for_shell', add_to_packets=False) # Breaking the ssh pipe will make this cause errors.
         return False
 
@@ -303,10 +304,12 @@ class Plumber():
         self.node_visit_counts[node_name] = self.node_visit_counts.get(node_name, 0)+1
         self.lambda_state = None
         self.node_state = 0
+        self.num_restarts_this_node = 0
         if self.node_visit_counts[node_name]>6:
             raise Exception('Likely stuck in a loop going between nodes, current node = ', node_name)
 
     def step(self):
+        # Returns True if the entire process is done.
         if self.steps_this_node>8: # Steps does not include short_wait if we do nothing.
             print('<|<|<| Current node stuck in loop:', self.nodes[self.current_node], '|>|>|>')
             raise Exception('Stuck in a single node most likely node name = ', self.current_node)
@@ -412,10 +415,11 @@ class Plumber():
             set_node = _setorend(cur_node['jump'])
             return bool(set_node == '->' and cur_node.get('end_node', False))
         if 'jump_branch' in cur_node: # The main way to test nodes.
-            if self.node_state==1:
+            if self.node_state==0:
                 self.send_cmd(cur_node['jump_branch'][0])
-                self.node_state = 2
-            elif self.node_state == 2:
+                self.node_state = 1
+                return False
+            elif self.node_state == 1:
                 txt = self.tubo.blit(False)
                 set_node = False
                 for ky in cur_node['jump_branch'][1].keys():
@@ -426,8 +430,15 @@ class Plumber():
                     for falsey in [None, False]:
                         if falsey in cur_node['jump_branch'][1]:
                             set_node = _setorend(cur_node['jump_branch'][1][falsey])
-            return bool(set_node == '->' and cur_node.get('end_node', False))
+                self.node_state = 0
+                return bool(set_node == '->' and cur_node.get('end_node', False))
+            else: # Should never be hit.
+                self.node_state = 0
+                return False
 
+        if cur_node.get('end_node', False):
+            return True
+        print('<<<|||<<<Current node:', cur_node, '>>>|||>>>')
         raise Exception('The node specified no "jump" or "jump_branch", and is not an "end_node".')
 
     def run(self):
