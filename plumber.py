@@ -25,9 +25,13 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
     nodes = {}
     node_begin_ends = [] # [begin, end0, end1, ...]. In order, used to compile "->" into names.
     for task in tasks:
-        add_to_ea_node = {'response_map':{**common_response_map, **task.get('response_map',{})}}
-        if 'lambda' in task:
-            add_to_ea_node['lambda'] = task['lambda']
+        response_map_task_common = {**common_response_map, **task.get('response_map',{})}
+        def commond_add(nd):
+            nd['response_map'] = {**response_map_task_common, **nd.get('response_map', {})}
+            if 'lambda' in task:
+                if 'lambda' in nd:
+                    raise Exception('Lambda task conflicts with lambda in node TODO resolve said conflict.')
+                nd['lambda'] = task['lambda']
         unrecognized_kys = set(task.keys())-set(['packages', 'commands', 'tests', 'lambda'])
         if len(unrecognized_kys)>0:
             raise Exception('Task must have only keys packages, commands, tests, lambda, not: '+str(unrecognized_kys))
@@ -36,16 +40,25 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             nodes1, n0 = plumb_packs.compile_package_cmd(p)
             if node_begin is None:
                 node_begin = n0
-            # This bit of code "uncaps" the ends so it can be glued into a larger pipeline:
-            pk_ends = list(filter(lambda nd: nodes1[nd].get('end_node', False), nodes1.keys()))
-            if len(pk_ends)==0:
+            # This bit of code "uncaps" the endings so it can be glued into a larger pipeline:
+            nd1_ends = []
+            for nk1 in nodes1.keys():
+                e1 = nodes1[nk1].get('end_node', False)
+                e2 = nodes1[nk1].get('jump', False) == '->'
+                e3 = '->' in list(nodes1[nk1].get('jump_branch', [None, {}])[1].values())
+                if e1 or e2 or e3:
+                    nd1_ends.append(nk1)
+            if len(nd1_ends)==0:
+                print('||||>>> package nodes:', nodes1, '<<<||||')
                 raise Exception('No end_node found for the compiled package command.')
-            for ni in pk_ends:
-                del nodes1[ni]['end_node']
-                nodes1[ni]['jump'] = '->'
-            node_begin_ends.append([n0]+pk_ends)
-            for nk in nodes1:
-                nodes1[nk].update(add_to_ea_node)
+            for ni in nd1_ends:
+                if 'end_node' in nodes1[ni]:
+                    del nodes1[ni]['end_node']
+                if 'jump_branch' not in nodes1[ni]: # In case they did not add a jump to thier end nodes.
+                    nodes1[ni]['jump'] = '->'
+            node_begin_ends.append([n0]+nd1_ends)
+            for nk1 in nodes1.keys():
+                commond_add(nodes1[nk1])
             nodes.update(nodes1)
         commands = task.get('commands', [])
         if type(commands) is str:
@@ -55,7 +68,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             if node_begin is None:
                 node_begin = node_name
             nd = {'cmd':cmd, 'jump':'->'}
-            nd.update(add_to_ea_node)
+            commond_add(nd)
             nodes[node_name] = nd
             node_begin_ends.append([node_name, node_name])
         for t in task.get('tests',[]):
@@ -63,7 +76,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             if node_begin is None:
                 raise Exception('Tests can only be used if there is at least one package or command.')
             nodes[node_name] = {'jump_branch':[t[0], {t[1]:'->', False:node_begin}]}
-            nodes[node_name].update(add_to_ea_node)
+            commond_add(nodes[node_name])
 
     for i in range(len(node_begin_ends)-1): # Link endings up to beginnings by replacing '->' keys.
         begin1 = node_begin_ends[i+1][0]
@@ -212,9 +225,12 @@ class Plumber():
 
     def restart_vm(self, penalize=True):
         # Preferable than using the tubo's restart fn because it resets rcounts_since_restart.
+        if self.tubo.printouts:
+            colorful.bprint('Restarting VM')
         if penalize and self.num_restarts==self.max_restarts:
             maybe_interactive_error(self, Exception('Max restarts exceeded, there appears to be an infinite loop that cant be broken.'))
         self.tubo.restart_fn()
+        self.tubo.add_empty_packet()
         self.rcounts_since_restart = {}
         self.last_restart_time = time.time()
         if penalize:
@@ -241,7 +257,7 @@ class Plumber():
         slow = time.time() - self.last_restart_time > 90
         if (slow and n >= 4) or (not_pipe_related and n>8):
             if self.tubo.printouts:
-                colorful.bprint('Installation may be stuck in a loop, restarting machine')
+                colorful.bprint('Installation may be stuck in a loop')
             self.restart_vm()
             self.task_packet_frusteration = 0
 
@@ -273,6 +289,9 @@ class Plumber():
             else:
                 break
         if self.tubo.drought_len()>8:
+            debug_print_node = True
+            if debug_print_node:
+                print('<|<|<| Current node stuck waiting:', self.nodes[self.current_node], '|>|>|>')
             self.send_cmd('Y\necho waiting_for_shell', add_to_packets=False) # Breaking the ssh pipe will make this cause errors.
         return False
 
@@ -289,6 +308,7 @@ class Plumber():
 
     def step(self):
         if self.steps_this_node>8: # Steps does not include short_wait if we do nothing.
+            print('<|<|<| Current node stuck in loop:', self.nodes[self.current_node], '|>|>|>')
             raise Exception('Stuck in a single node most likely node name = ', self.current_node)
 
         t0 = time.time()
@@ -324,7 +344,8 @@ class Plumber():
                 colorful.bprint('Random pipe fix sleep (seems to help break out of some not-yet-ready-after-fix loops):', sleep_time)
             time.sleep(sleep_time)
 
-        if not self.short_wait():
+        send_this = self.blit_based_response()
+        if not send_this and not self.short_wait():
             if self.tubo.drought_len()>96:
                 colorful.bprint('Long wait time for the shell to resurface, restaring vm.')
                 self.restart_vm()
@@ -356,7 +377,9 @@ class Plumber():
                 raise Exception('Unrecognized output of a generic lambda.')
 
         # Response map which can introject randomally (i.e. the machine says "do you want to continue [Y/n].")
-        send_this = self.blit_based_response()
+        send_this1 = self.blit_based_response() # Is this second call needed?
+        if send_this1:
+            send_this = send_this1
         self._restart_if_too_loopy()
         if not send_this:
             pass

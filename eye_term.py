@@ -412,6 +412,10 @@ class MessyPipe:
             self.packets.append([txt, Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()])
         self.send_f(txt, include_newline=include_newline)
 
+    def add_empty_packet(self):
+        # Adds an empty packet without sending anything.
+        self.packets.append(['', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()])
+
     def API(self, txt, f_polls=None, timeout=8.0):
         # Behaves like an API, returning out, err, and information about which polling fn suceeded.
         # Includes a timeout setting if none of the polling functions work properly.
