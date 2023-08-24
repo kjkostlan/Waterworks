@@ -25,6 +25,10 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
     nodes = {}
     node_begin_ends = [] # [begin, end0, end1, ...]. In order, used to compile "->" into names.
     for task in tasks:
+        if len(task.get('commands', [])) + len(task.get('packages', [])) == 0:
+            if 'tests' in task:
+                task = task.copy()
+                task['commands'] = 'echo placeholder_command'
         response_map_task_common = {**common_response_map, **task.get('response_map',{})}
         def commond_add(nd):
             nd['response_map'] = {**response_map_task_common, **nd.get('response_map', {})}
@@ -74,6 +78,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
         for t in task.get('tests',[]):
             node_name = 'test/'+t[0]
             if node_begin is None:
+                print('Trouble compiling this task::<:<:<', task, ':>:>:>')
                 raise Exception('Tests can only be used if there is at least one package or command.')
             nodes[node_name] = {'jump_branch':[t[0], {t[1]:'->', False:node_begin}]}
             commond_add(nodes[node_name])
@@ -110,8 +115,8 @@ def get_prompt_response(txt, response_map):
     for otxt in [lline, txt]:
         for k in response_map.keys():
             hit = False
-            if callable(k) and k(otxt):
-                hit = True
+            if callable(k):
+                hit = k(otxt)
             elif type(k) is bool:
                 hit = k
             elif type(k) is str:

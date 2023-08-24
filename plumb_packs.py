@@ -118,7 +118,7 @@ def make_pip_nodes(pkg, verify_name='default'):
     name_main = 'pip3 '+pkg+' main'
     name_test = 'pip3 '+pkg+' test'
     nodes = {}
-    nodes[name_main] = {'cmd':f'sudo apt install {pkg}', 'jump':name_test if verify_name else '->'}
+    nodes[name_main] = {'cmd':f'sudo pip3 install {pkg}', 'jump':name_test if verify_name else '->'}
     if verify_name:
         test_cmd = f'python3\npython\nimport sys\nimport {verify_name}\nx=456*789 if "{verify_name}" in sys.modules else 123*456\nprint(x)\nquit()'
         nodes[name_test] = {'jump_branch': [test_cmd, {str(456*789):'->', str(123*456):name_main, False:name_main}]}
