@@ -106,12 +106,13 @@ try:
 except:
     interactive_error_mode = False
 
-def get_prompt_response(txt, response_map):
+def get_prompt_responses(txt, response_map):
     # "Do you want to continue (Y/n); input AWS user name; etc"
+    # If it returns multible responses you need to choose which!
     def _last_line(txt):
         return txt.replace('\r\n','\n').split('\n')[-1]
     lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
-    # (A few false positive inputs is unlikely to cause trouble so long as they don't shadow the other inputs).
+    out = []
     for otxt in [lline, txt]:
         for k in response_map.keys():
             hit = False
@@ -126,7 +127,8 @@ def get_prompt_response(txt, response_map):
             if hit:
                 x = response_map[k](otxt) if callable(response_map[k]) else response_map[k]
                 if x:
-                    return x
+                    out.append(x)
+    return out
 
 def loop_try(f, f_catch, msg, delay=4):
     # Waiting for something? Keep looping untill it succedes!
@@ -282,10 +284,13 @@ class Plumber():
         # Responses based on the blit alone, including error handling.
         # None means that there is no need to give a specific response.
         txt = self.tubo.blit(False)
-        z = get_prompt_response(txt, self.nodes[self.current_node].get('response_map',{})) # Do this last in case there is a false positive that actually is an error.
-        if z is not None:
-            return z
-        return None
+        zs = get_prompt_responses(txt, self.nodes[self.current_node].get('response_map',{})) # Do this last in case there is a false positive that actually is an error.
+        if len(zs) == 0:
+            return None
+        elif len(zs) == 1:
+            return zs[0]
+        else:
+            raise Exception('Multible blit-based responses: '+str(zs))
 
     def blit_all(self):
         # Blits across multible tubos.
