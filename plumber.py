@@ -24,13 +24,15 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
 
     nodes = {}
     node_begin_ends = [] # [begin, end0, end1, ...]. In order, used to compile "->" into names.
+                         # Each sub-task has a begin node and end node(s); for commands and tests they are the same node.
+                         # When we see ->, we send that node to the next begin node.
     for task in tasks:
         if len(task.get('commands', [])) + len(task.get('packages', [])) == 0:
             if 'tests' in task:
                 task = task.copy()
                 task['commands'] = 'echo placeholder_command'
         response_map_task_common = {**common_response_map, **task.get('response_map',{})}
-        def commond_add(nd):
+        def common_add(nd):
             nd['response_map'] = {**response_map_task_common, **nd.get('response_map', {})}
             if 'lambda' in task:
                 if 'lambda' in nd:
@@ -62,9 +64,10 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
                     nodes1[ni]['jump'] = '->'
             node_begin_ends.append([n0]+nd1_ends)
             for nk1 in nodes1.keys():
-                commond_add(nodes1[nk1])
+                common_add(nodes1[nk1])
             nodes.update(nodes1)
         commands = task.get('commands', [])
+
         if type(commands) is str:
             commands = [commands]
         for cmd in commands:
@@ -72,7 +75,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
             if node_begin is None:
                 node_begin = node_name
             nd = {'cmd':cmd, 'jump':'->'}
-            commond_add(nd)
+            common_add(nd)
             nodes[node_name] = nd
             node_begin_ends.append([node_name, node_name])
         for t in task.get('tests',[]):
@@ -81,7 +84,8 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
                 print('Trouble compiling this task::<:<:<', task, ':>:>:>')
                 raise Exception('Tests can only be used if there is at least one package or command.')
             nodes[node_name] = {'jump_branch':[t[0], {t[1]:'->', False:node_begin}]}
-            commond_add(nodes[node_name])
+            node_begin_ends.append([node_name, node_name])
+            common_add(nodes[node_name])
 
     for i in range(len(node_begin_ends)-1): # Link endings up to beginnings by replacing '->' keys.
         begin1 = node_begin_ends[i+1][0]
@@ -340,6 +344,9 @@ class Plumber():
     def set_node(self, node_name):
         if node_name == '->':
             raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
+        if node_name not in self.nodes:
+            print('<(<(Not dict nodes:', list(self.nodes.keys()), ')>)>')
+            raise Exception('Node name not in node dict: '+node_name)
         self.current_node = node_name
         self.sent_cmds_this_node = 0
         self.node_visit_counts[node_name] = self.node_visit_counts.get(node_name, 0)+1
