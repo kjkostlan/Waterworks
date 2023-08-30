@@ -60,7 +60,18 @@ def ssh_error(e_txt, cmd_history):
 def make_snap_nodes(pkg):
     # Snap installation. Can be used if app installation fails.
     # f'sudo snap install {ppair[1]} --classic' # Gives full access.
-    TODO
+    pkg = pkg.strip().split(' ')[-1]
+    name_main = 'snap '+pkg+' main'
+    name_test = 'snap '+pkg+' test'
+    nodes = {}
+    nodes[name_main] = {'cmd':f'sudo snap install {pkg} --classic', 'jump':name_test}
+    nodes[name_test] = {'jump_branch':[f'snap info {pkg}', {False:name_main, 'error:':name_main, 'name:':'->', 'summary:':'->'}]}
+
+    snappy_response_map = {} # In case anything needs to go here.
+
+    for nk in nodes.keys(): # Common response map.
+        nodes[nk]['response_map'] = {**default_prompts(), **snappy_response_map}
+    return nodes, name_main
 
 def make_apt_nodes(pkg):
     # Apt installation nodes.
@@ -70,10 +81,13 @@ def make_apt_nodes(pkg):
     name_kill0 = 'apt '+pkg+' kill_apt_lock_node0'
     name_kill1 = 'apt '+pkg+' kill_apt_lock_node1'
 
+    snap_nodes, snap_node_main = make_snap_nodes(pkg) # Snap is sometimes used instead of apt.
+
+    wants_snap = f'Try "snap install {pkg}"'
+    old_apt_f = lambda txt: ('Unable to locate package' in txt or 'has no installation candidate' in txt) and wants_snap not in txt
     response_map = {"you must manually run 'sudo dpkg --configure -a'":'sudo dpkg --configure -a',
-                    'Unable to locate package':'sudo apt update\nsudo apt upgrade',
-                    f'Try "snap install {pkg}"':lambda _:TODO,
-                    'has no installation candidate':'sudo apt update\nsudo apt upgrade',
+                    wants_snap:'(node)'+snap_node_main,
+                    old_apt_f:'sudo apt update\nsudo apt upgrade',
                     'Some packages could not be installed. This may mean that you have requested an impossible situation':'sudo apt update\nsudo apt upgrade'}
     response_map = {**default_prompts(), **response_map}
     kl_node_name = pkg+' kill_lock_node' # Lock error => kill process having lock. A VM restart may also work.
@@ -95,6 +109,8 @@ def make_apt_nodes(pkg):
 
     for nk in nodes.keys(): # Common response map.
         nodes[nk]['response_map'] = {**response_map, **nodes[nk].get('response_map', {})}
+
+    nodes = {**nodes, **snap_nodes}
 
     return nodes, name_main
 

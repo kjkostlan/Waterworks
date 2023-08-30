@@ -113,9 +113,11 @@ def get_prompt_responses(txt, response_map):
         return txt.replace('\r\n','\n').split('\n')[-1]
     lline = _last_line(txt.strip()) # First try the last line, then try everything since the last cmd ran.
     out = []
+    hit = False
     for otxt in [lline, txt]:
+        if hit:
+            break # Prefer to use only the last line, rather than the whole since-last-command blit.
         for k in response_map.keys():
-            hit = False
             if callable(k):
                 hit = k(otxt)
             elif type(k) is bool:
@@ -128,6 +130,7 @@ def get_prompt_responses(txt, response_map):
                 x = response_map[k](otxt) if callable(response_map[k]) else response_map[k]
                 if x:
                     out.append(x)
+
     return out
 
 def loop_try(f, f_catch, msg, delay=4):
@@ -285,12 +288,28 @@ class Plumber():
         # None means that there is no need to give a specific response.
         txt = self.tubo.blit(False)
         zs = get_prompt_responses(txt, self.nodes[self.current_node].get('response_map',{})) # Do this last in case there is a false positive that actually is an error.
+        zs = list(set(zs)) # Remove duplicate elements.
+
+        for i in range(len(zs)):
+            if callable(zs[i]): # Rare case of function-valued responses, which is a Turing-complete fallback.
+                zs[i](self, txt)
+                zs[i] = ''
+            elif type(zs[i]) is not str:
+                raise Exception('Responses must be strings or functions (which in turn return strings or rarely f(tubo, blit_txt)).')
+
         if len(zs) == 0:
             return None
         elif len(zs) == 1:
             return zs[0]
-        else:
-            raise Exception('Multible blit-based responses: '+str(zs))
+        else: # Multible services, 50% of picking one randomally 50% chance of picking them all.
+            if self.tubo.printouts:
+                colorful.bprint('Multible blit-based responses: '+str(zs)+' time to maybe be random.')
+            import random
+            if random.random()<0.5:
+                return random.choice(zs)
+            else:
+                random.shuffle(zs)
+                return '\n'.join(zs)
 
     def blit_all(self):
         # Blits across multible tubos.
