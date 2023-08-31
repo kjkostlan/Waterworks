@@ -103,6 +103,10 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
     for ky in node_begin_ends[-1][1:]:
         nodes[ky]['end_node'] = True
 
+    for ky in nodes.keys():
+        if ky != ky.strip():
+            raise Exception('No dangling spaces allowed; bad node name = |'+ky+'|')
+
     return nodes, node_begin_ends[0][0]
 
 try:
@@ -342,10 +346,13 @@ class Plumber():
         return False
 
     def set_node(self, node_name):
+        node_name = node_name.strip()
         if node_name == '->':
             raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
         if node_name not in self.nodes:
-            print('<(<(Not dict nodes:', list(self.nodes.keys()), ')>)>')
+            print('<(<(Node names in the dict:', list(self.nodes.keys()), ')>)>')
+            if node_name in str(self.nodes.keys()):
+                raise Exception('This error does not make any sense!')
             raise Exception('Node name not in node dict: '+node_name)
         self.current_node = node_name
         self.sent_cmds_this_node = 0
