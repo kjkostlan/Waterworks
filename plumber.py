@@ -266,9 +266,24 @@ class Plumber():
 
     def send_cmd(self, _cmd, add_to_packets=True):
         # Preferable than tubo.send since we store cmd_history and catch SSH errors.
-        _cmd1 = _cmd.replace('(restart)','').strip()
-        if _cmd =='\n':
-            _cmd1 = _cmd
+        lines = _cmd.split('\n')
+        do_restart = False # Special commands.
+        do_node = False
+        do_err = False
+
+        for i in range(len(lines)):
+            l = lines[i]
+            if l.startswith('(restart)'):
+                lines[i] = lines[i].replace('(restart)','')
+                do_restart = True
+            elif l.startswith('(node)'):
+                do_node = l.replace('(node)','').strip()
+                lines[i] = ''
+            elif l.startswith('(error)'):
+                do_err = l.replace('(error)','').strip()
+                lines[i] = ''
+
+        _cmd1 = '\n'.join(lines)
 
         if len(_cmd1)>0:
             try:
@@ -277,10 +292,14 @@ class Plumber():
                 self.pipe_fix_fn = self._sshe(e)
                 if self.tubo.printouts:
                     colorful.bprint('Sending command failed b/c of:', str(e)+'; will run the remedy.\n')
-        if '(restart)' in _cmd: # Restart the virtual machine.
+        if do_restart: # Restart the virtual machine.
             self.restart_vm(penalize=False)
-        else:
-            self.sent_cmds_this_node = self.sent_cmds_this_node+1
+        if do_node:
+            self.set_node(do_node)
+        if do_err:
+            print('**Response-map throw error see below**')
+            raise Exception(do_error)
+        self.sent_cmds_this_node = self.sent_cmds_this_node+1
 
     def _restart_if_too_loopy(self, not_pipe_related=None):
         n = self.node_visit_counts.get(self.current_node, 0)
@@ -351,7 +370,7 @@ class Plumber():
             raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
         if node_name not in self.nodes:
             print('<(<(Node names in the dict:', list(self.nodes.keys()), ')>)>')
-            if node_name in str(self.nodes.keys()):
+            if node_name in str(list(self.nodes.keys())):
                 raise Exception('This error does not make any sense!')
             raise Exception('Node name not in node dict: '+node_name)
         self.current_node = node_name
@@ -443,10 +462,6 @@ class Plumber():
         elif callable(send_this): # Rare to return a function, generally lambda is preferred.
             send_this(self)
             return False
-        elif send_this.startswith('(node)'):
-            self.set_node(send_this.replace('(node)','').strip())
-        elif send_this.startswith('(error)'):
-            raise Exception(send_this.replace('(error)','').strip())
         elif send_this is not None:
             self.send_cmd(send_this)
             return False
