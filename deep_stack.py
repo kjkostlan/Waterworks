@@ -218,7 +218,6 @@ def exec_better_report(code_txt, *args, **kwargs):
     #   It will wrap the print in deep_stack.varval_report_wrappers
     code_txt = code_txt.replace('\r\n','\n')
     try:
-        import time; time.sleep(0.1) # DEBUG
         exec(code_txt, *args, **kwargs)
     except Exception as e: # Raise modified errors that provide better information.
         report = the_old_way(e)
@@ -238,7 +237,8 @@ def exec_better_report(code_txt, *args, **kwargs):
         raise raise_from_message(broken_code_msg+': '+repr(e))
     lines = code_txt.strip().split('\n')
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
-        print(varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1])
+        output = varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1]
+        print(output.encode('utf-8'))
 
 def exec_here(modulename, code_txt, delete_new_vars=False):
     # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
