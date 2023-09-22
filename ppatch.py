@@ -1,9 +1,9 @@
 # Patch system: Allows making and removing patches to variables.
 # (Of course this requires functions that get variables from modules)
 import sys, re
-import proj
+from . import global_vars
 
-_gld = proj.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
+_gld = global_vars.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
 
 def _v0(modulename, var_name):
     return _gld['original_varss'].get(modulename,{}).get(var_name,None)

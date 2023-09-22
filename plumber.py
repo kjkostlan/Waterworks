@@ -1,7 +1,6 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term, colorful, deep_stack
-from . import plumb_packs
+from . import eye_term, colorful, deep_stack, plumb_packs
 
 def compile_tasks(tasks, common_response_map, include_apt_init):
     # Compiles tasks into nodes, it is easier to send a list of tasks.

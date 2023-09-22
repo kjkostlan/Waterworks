@@ -1,9 +1,8 @@
 # Watch vars for certain effects.
 import sys, time, difflib
-from . import ppatch
-import proj
+from . import ppatch, global_vars
 
-vglobals = proj.global_get('ver_watch_uwglobals', {'logss':{}, 'txt_edits':[], 'module_watcher_codes':{}})
+vglobals = global_vars.global_get('ver_watch_uwglobals', {'logss':{}, 'txt_edits':[], 'module_watcher_codes':{}})
 
 ############################ Var mutation watching #############################
 
@@ -16,7 +15,9 @@ def add_mutation_watch():
 
 def disk_log(*x):
     # Code freezing up? Use this function to pinpoint where.
-    fname = proj.dump_folder+'/var_watch_disklog.txt'
+    if not global_vars.dump_folder:
+        raise Exception('waterworks.global_vars.dump_folder must be set in order to use waterworks.var_watch.disk_log.')
+    fname = global_vars.dump_folder+'/var_watch_disklog.txt'
     with open(fname, 'a' if os.path.exists(fname) else 'w') as file:
         file.write(' '.join([str(xi) for xi in x])+'\n')
 

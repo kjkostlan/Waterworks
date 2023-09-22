@@ -1,8 +1,7 @@
 import os, sys, importlib, time
-from . import file_io, modules, fittings, var_watch, ppatch
-import proj
+from . import file_io, modules, fittings, var_watch, ppatch, global_vars
 
-uglobals = proj.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
+uglobals = global_vars.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
 
 class ModuleUpdate:
@@ -41,8 +40,6 @@ def get_user_paths():
     return uglobals['user_paths'].copy()
 
 def _fupdate(fname, modulename):
-    if modulename=='proj':
-        raise Exception('No nice way to update proj; restart program recommended.')
     old_vars = ppatch.get_vars(modulename)
     fname = file_io.abs_path(fname, True).replace('\\','/')
 

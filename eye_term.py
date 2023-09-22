@@ -5,10 +5,9 @@
 #https://www.linode.com/docs/guides/use-paramiko-python-to-ssh-into-a-server/
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
-import proj
-from . import fittings, colorful, deep_stack
+from . import fittings, colorful, deep_stack, global_vars
 
-_glbals = proj.global_get('eye_term_globals', {'log_pipes':[]})
+_glbals = global_vars.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
 
 try:

@@ -1,5 +1,5 @@
 import os, io, time, stat, pickle, pathlib, codecs, shutil
-import proj
+from . import global_vars
 
 try:
     debug_restrict_disk_modifications_to_these
@@ -7,7 +7,7 @@ except:
     debug_restrict_disk_modifications_to_these = None
 
 ph = os.path.realpath('.').replace('\\','/')
-fglobals = proj.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
+fglobals = global_vars.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
                                                'user_paths':[ph],'checkpoints':{},'created_files':set()})
 
 def linux_if_str(txt):

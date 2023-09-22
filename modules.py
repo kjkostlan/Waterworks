@@ -1,9 +1,8 @@
 # Loading new modules and updating modules (but not file io)
 import sys, os, importlib, io, re
-import proj
-from . import file_io, py_updater
+from . import file_io, py_updater, global_vars
 
-mglobals = proj.global_get('modules_globals', {'varflush_queue':[]})
+mglobals = global_vars.global_get('modules_globals', {'varflush_queue':[]})
 
 def add_to_path(folder_name):
     # Also adds the py_updater paths.

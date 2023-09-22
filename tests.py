@@ -1,4 +1,4 @@
-# Note: most tests are not in Waterworks (due to the difficulty testing things), there are in other projects that use waterworks.
+# Note: most tests are not in Waterworks, there are in other projects that use waterworks and provide nice testbeds.
 from . import fittings, deep_stack, colorful
 
 def test_colorful():
