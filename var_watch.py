@@ -114,8 +114,6 @@ def remove_all_logs():
 
 def record_txt_update(mname, fname, the_edits):
     # Standard record updates. The edit is of the form [ix0, ix1, inserted_txt]
-    if the_edit is None or str(the_edit)==str([0,0,'']):
-        return # No edit made.
     t_now = time.time()
     for the_edit in the_edits:
         ed1 = [mname, fname]+the_edit+[t_now]
