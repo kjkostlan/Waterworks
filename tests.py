@@ -90,3 +90,22 @@ def test_deep_stack():
     out = out and 'ZeroDivisionError' in msg_ez and 'division by zero' in msg_ez and '\n' in msg_ez and 'line ' in msg_ez and 'in f3: return f2(x)*3' in msg_ez
     out = out and len(msg_ez)<len(msg) and deep_stack.remove_greebles(msg_ez) == msg_ez and deep_stack.add_greebles(msg_ez) == msg
     return out
+
+def test_b4_afr():
+    # Test the string b4/after feature.
+    txt0 = 'Earth is a Phase-Change world. Jupiter is a world of too much gravity. Saturn is a world great minus the no-land-to-stand-on.'
+    txt1 = txt0.replace('world', 'planet')
+    txt0a = 'world'+txt0; txt1a = txt0a.replace('world','planet')
+    pairs = [[txt0, txt1], [txt0a, txt1a]]
+    gold_n_edits = [3, 4]
+    out = True
+    for i in range(len(pairs)):
+        pair = pairs[i]
+        eds = fittings.txt_edits(pair[0], pair[1])
+        txt1_green = pair[0]
+        for ed in eds:
+            txt1_green = txt1_green[0:ed[0]]+ed[2]+txt1_green[ed[1]:]
+        out = out and txt1_green==pair[1]
+        out = out and len(eds) == (gold_n_edits[i])
+
+    return out

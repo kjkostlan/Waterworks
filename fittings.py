@@ -58,31 +58,40 @@ def cwalk(f, x, leaf_only=True):
 
 ################################# Strings ######################################
 
-def txt_edit(old_txt, new_txt):
+def txt_edits(old_txt, new_txt):
     # If not change or old_txt is None will not make a difference.
+    # Edits are [ix0, ix1, txt_inserted].
+    # Edits must be applied in order.
     #https://stackoverflow.com/questions/18715688/find-common-substring-between-two-strings
     #https://docs.python.org/3/library/difflib.html
     if old_txt is None or old_txt == new_txt:
-        return [0,0,'',''] # Null edit. Please don't add this.
+        return [] # No edit.
     if type(old_txt) is not str:
         raise TypeError('Both inputs must be a str but old_txt isnt.')
     if type(new_txt) is not str:
         raise TypeError('Both inputs must be a str but new_txt isnt.')
+    old_txt = old_txt.replace('\r\n','\n')
+    new_txt = new_txt.replace('\r\n','\n')
+
     s = difflib.SequenceMatcher(None, old_txt, new_txt)
     blocks = s.get_matching_blocks() #[(a,b,size)]
 
-    blocks = list(filter(lambda b: b.size>0, blocks))
+    min_size = 12 # Below this size just combine the edits into one feature.
+    blocks = list(filter(lambda b: b.size>=min_size, blocks))
 
-    if len(blocks)==0:
-        return [0, len(old_txt), old_txt, new_txt]
+    # The edited part is the pieces between the blocks:
+    blocks1 = [[0,0,0]]+[[bl.a, bl.b, bl.size] for bl in blocks]+[[len(old_txt), len(new_txt), 0]]
 
-    # Use the first and last block:
-    b0 = blocks[0]; b1 = blocks[-1]
-    ax0 = 0 if b0.a>0 else b0.a+b0.size
-    ax1 = len(new_txt) if b1.b+b1.size<len(new_txt) else b1.b
-    bx0 = ax0+b0.b-b0.a; bx1 = bx0+(ax1-ax0)
+    edits = []
+    for i in range(0, len(blocks1)-1):
+        b0 = blocks1[i]; b1 = blocks1[i+1] # The part between b0 and b1 is the actual edit.
+        ix_starta = b0[0]+b0[2]; ix_enda = b1[0]
+        ix_startb = b0[1]+b0[2]; ix_endb = b1[1]
+        if ix_enda-ix_starta>0 or ix_endb-ix_startb>0:
+            edits.append([ix_starta, ix_enda, new_txt[ix_startb:ix_endb]])
+    edits.reverse() # Avoid shift-index errors.
 
-    return [ax0, ax1, old_txt[ax0:ax1], new_txt[bx0:bx1]]
+    return edits
 
 def utf8_one_char(read_bytes_fn):
     # One unicode char may be multible bytes, but if so the first n-1 bytes are not valid single byte chars.
