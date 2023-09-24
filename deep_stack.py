@@ -3,7 +3,8 @@
 # Filtering the error from the actual message is a pain, hopefully our fns work here!
 import traceback
 import re
-from . import colorful, fittings
+from . import colorful, fittings, global_vars
+tprint = global_vars.tprint
 
 _head = '{{WaterworksErrPropStack}}' # Identifiers "greebles" used to detect Exceptions in the stream.
 _linehead = '<<Waterworks_ERR>>'
@@ -238,7 +239,7 @@ def exec_better_report(code_txt, *args, **kwargs):
     lines = code_txt.strip().split('\n')
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
         output = varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1]
-        print(output.encode('utf-8'))
+        tprint(output.encode('utf-8'))
 
 def exec_here(modulename, code_txt, delete_new_vars=False):
     # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
@@ -263,7 +264,7 @@ def exec_feed(in_place_array, line, *args, **kwargs):
     unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
     more_than_comment = not line.startswith('#')
     code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n')
-    even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with triple quotes.
+    even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with unuasual nested triple quotes.
     its_running_time = even_triples and more_than_comment and unindented
     if its_running_time:
         del in_place_array[:]

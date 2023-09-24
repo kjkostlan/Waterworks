@@ -6,6 +6,7 @@
 #https://hackersandslackers.com/automate-ssh-scp-python-paramiko/
 import time, re, os, sys, threading
 from . import fittings, colorful, deep_stack, global_vars
+tprint = global_vars.tprint
 
 _glbals = global_vars.global_get('eye_term_globals', {'log_pipes':[]})
 log_pipes = _glbals['log_pipes']
@@ -147,14 +148,18 @@ def pipe_update_loop(tubo, is_err): # For ever watching... untill the thread get
         time.sleep(dt)
         dt = min(dt1, dt*1.414)
 
+def print_clear_print_buf(tubo):
+    # Clears and prints any builtup print buffer.
+    if len(str(tubo.print_buf))>0:
+        colorful.wrapprint(str(tubo.print_buf)) # Newlines should be contained within the feed so there is no need to print them directly.
+        tubo.print_buf = Sbuild(False)
+
 def pipe_print_loop(tubo):
     n_close = 0
     while n_close<2: # One chance to print after closing.
-        if tubo.printouts:
-            if len(str(tubo.print_buf))>0:
-                with tubo.lock: # Does this prevent interleaving out and err prints?
-                    colorful.wrapprint(str(tubo.print_buf)) # Newlines should be contained within the feed so there is no need to print them directly.
-                    tubo.print_buf = Sbuild(False)
+        if tubo.printouts and len(str(tubo.print_buf))>0:
+            with tubo.lock: # Does this prevent interleaving out and err prints?
+                print_clear_print_buf(tubo)
         time.sleep(tubo.print_dt)
         if tubo.closed:
             n_close = n_close+1
@@ -355,6 +360,8 @@ class MessyPipe:
         # Ranged blit based on packets.
         self.assert_no_loop_err()
         with self.lock:
+            if self.printouts:
+                print_clear_print_buf(self) # So that printouts will always be shown before the blit is calculated.
             packets = self.packets[ix0:ix1]
             if self.binary_mode:
                 out = b''
@@ -463,7 +470,7 @@ class MessyPipe:
 
     def assert_no_loop_err(self):
         if self.loop_err:
-            print('Polling loop exception:', self.loop_err)
+            tprint('Polling loop exception:', self.loop_err)
             raise self.loop_err
 
     def bubble_stream_errors(self, shift_horizons=True):

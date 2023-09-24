@@ -1,5 +1,7 @@
 # Functions and rulesets for how the plumber can install packages.
 import re
+from . import global_vars
+tprint = global_vars.tprint
 
 # Each plumber has a workflow which is a dict of nodes: (tubo has node_state which is set to None upon entering each node).
 # "lambda": f(tubo) => called every step if present.
@@ -38,7 +40,7 @@ def ssh_error(e_txt, cmd_history):
             plumber.tubo.remake()
         else:
             if plumber.tubo.printouts:
-                print('12 banner errors in a row, restarting and hope for the best!')
+                tprint('12 banner errors in a row, restarting and hope for the best!')
             plumber.restart_vm()
             plumber.tubo.remake()
             plumber.SSH_banner_annoy = 0

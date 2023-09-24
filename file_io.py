@@ -1,5 +1,6 @@
 import os, io, time, stat, pickle, pathlib, codecs, shutil
 from . import global_vars
+tprint = global_vars.tprint
 
 try:
     debug_restrict_disk_modifications_to_these
@@ -171,10 +172,10 @@ def disk_unpickle64(txt64):
             try:
                 os.remove(fname)
             except:
-                print('Warning: file deletion during update failed for',fname)
+                tprint('Warning: file deletion during update failed for',fname)
         else:
             fsave(fname, txt) # auto-makes enclosing folders.
-    print('Saved to these files:', fname2obj.keys())
+    tprint('Saved to these files:', fname2obj.keys())
 
 def _update_checkpoints_before_saving(fname):
     fname = abs_path(fname)
@@ -192,12 +193,12 @@ def _unwindoze_attempt(f, filename_err_report, tries=12, retry_delay=1, throw_so
             break
         except PermissionError as e:
             if 'being used by another process' in str(e):
-                print('File-in-use error (will retry) for:', filename_err_report)
+                tprint('File-in-use error (will retry) for:', filename_err_report)
             else:
                 if throw_some_errors:
                     f() # Throw actual permission errors.
                 else:
-                    print('Will retry because of this PermissionError:', str(e))
+                    tprint('Will retry because of this PermissionError:', str(e))
 
             if i==tries-1:
                 raise Exception('Windoze error: Retried too many times and this file stayed in use:', filename_err_report)
@@ -400,5 +401,5 @@ def with_modifications(fname2contents, f, blanck_original_txts=False):
     if blanck_original_txts:
         fglobals['original_txts'] = original_txts
     if exc is not None:
-        print('Problem inside the function passed to with_modifications (see error below).')
+        tprint('Problem inside the function passed to with_modifications (see error below).')
         raise exc

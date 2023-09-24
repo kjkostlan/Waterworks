@@ -1,5 +1,6 @@
 import os, sys, importlib, time
 from . import file_io, modules, fittings, var_watch, ppatch, global_vars
+tprint = global_vars.tprint
 
 uglobals = global_vars.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
@@ -74,7 +75,7 @@ def save_py_file(py_file, contents, assert_py_module=False):
     for k in f: # a little inefficient to loop through each modulename.
         if f[k] == py_file and old_txt != contents:
             if printouts:
-                print('Saving to module:', k)
+                tprint('Saving to module:', k)
             return _fupdate(py_file, k)
     if assert_py_module:
         raise Exception('Filename not in listed modules:' + py_file)
@@ -100,7 +101,7 @@ def update_one_module(modulename, fname=None, assert_main=True):
         fname = modules.module_file(modulename)
     if fname is None:
         raise Exception('No fname supplied and cannot find the file.')
-    print('Updating MODULE:', modulename, fname)
+    tprint('Updating MODULE:', modulename, fname)
 
     out = _fupdate(fname, modulename)
     var_watch.just_after_module_update(modulename)
@@ -226,4 +227,4 @@ def unpickle64_and_update(txt64, update_us=True, update_vms=True):
             import vm # delay the import because install_core has to run as standalone for fresh installs.
             vm.update_vms_skythonic(delta)
         except ModuleNotFoundError:
-            print("Not in a project that uses Skythonic's vm module, skipping this step.")
+            tprint("Not in a project that uses Skythonic's vm module, skipping this step.")

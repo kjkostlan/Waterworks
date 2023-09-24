@@ -1,6 +1,7 @@
 # Plumbers deal with pipes that *should be* working but *aren't* working.
 import time, traceback
-from . import eye_term, colorful, deep_stack, plumb_packs
+from . import eye_term, colorful, deep_stack, plumb_packs, global_vars
+tprint = global_vars.tprint
 
 def compile_tasks(tasks, common_response_map, include_apt_init):
     # Compiles tasks into nodes, it is easier to send a list of tasks.
@@ -54,7 +55,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
                 if e1 or e2 or e3:
                     nd1_ends.append(nk1)
             if len(nd1_ends)==0:
-                print('||||>>> package nodes:', nodes1, '<<<||||')
+                tprint('||||>>> package nodes:', nodes1, '<<<||||')
                 raise Exception('No end_node found for the compiled package command.')
             for ni in nd1_ends:
                 if 'end_node' in nodes1[ni]:
@@ -80,7 +81,7 @@ def compile_tasks(tasks, common_response_map, include_apt_init):
         for t in task.get('tests',[]):
             node_name = 'test/'+t[0]
             if node_begin is None:
-                print('Trouble compiling this task::<:<:<', task, ':>:>:>')
+                tprint('Trouble compiling this task::<:<:<', task, ':>:>:>')
                 raise Exception('Tests can only be used if there is at least one package or command.')
             nodes[node_name] = {'jump_branch':[t[0], {t[1]:'->', False:node_begin}]}
             node_begin_ends.append([node_name, node_name])
@@ -153,7 +154,7 @@ def loop_try(f, f_catch, msg, delay=4):
                 if callable(msg):
                     msg = msg()
                 if len(msg)>0:
-                    print('Loop try ('+'\033[90m'+str(e)+'\033[0m'+') '+msg)
+                    tprint('Loop try ('+'\033[90m'+str(e)+'\033[0m'+') '+msg)
             else:
                 raise e
         time.sleep(delay)
@@ -173,7 +174,7 @@ def with_timeout(tubo, f, timeout=6, message=None):
 
 def manual_labor(plumber):
     while True:
-        print('\n')
+        tprint('\n')
         x = input("\033[38;2;255;255;0;48;2;0;0;139mInput text to send to pipe (or quit or continue or .foo to query plumber.foo):\033[0m").strip()
         if len(x)==0:
             continue
@@ -183,17 +184,17 @@ def manual_labor(plumber):
             return True
         try:
             if x[0]=='.':
-                print(exec('plumber'+x))
+                tprint(exec('plumber'+x))
             else:
                 plumber.tubo.send(x)
         except Exception as e:
-            print('Error:', e)
+            tprint('Error:', e)
 
 def maybe_interactive_error(plumber, e):
     # Lets the user manually input the error.
-    print('Plumber encountered an error that should be debugged:')
-    print('\n'.join(traceback.format_exception(None, e, e.__traceback__)))
-    print(f"\033[38;2;255;255;0;48;2;0;0;139mError: {e}; entering interactive debug session.\033[0m")
+    tprint('Plumber encountered an error that should be debugged:')
+    tprint('\n'.join(traceback.format_exception(None, e, e.__traceback__)))
+    tprint(f"\033[38;2;255;255;0;48;2;0;0;139mError: {e}; entering interactive debug session.\033[0m")
     x = interactive_error_mode and manual_labor(plumber)
     if x:
         plumber.num_restarts = 0; plumber.rcounts_since_restart = {} # Reset this.
@@ -234,7 +235,7 @@ class Plumber():
         self.nodes, self.current_node = compile_tasks(tasks, common_response_map, include_apt_init)
         debug_print_nodes = False
         if debug_print_nodes:
-            print('<<<Nodes:', self.nodes, '>>>', '<<<Tasks:', self.nodes, '>>>')
+            tprint('<<<Nodes:', self.nodes, '>>>', '<<<Tasks:', self.nodes, '>>>')
 
         self.lambda_state = None
         self.node_state = 0 # For jump_branch nodes.
@@ -296,7 +297,7 @@ class Plumber():
         if do_node:
             self.set_node(do_node)
         if do_err:
-            print('**Response-map throw error see below**')
+            tprint('**Response-map throw error see below**')
             raise Exception(do_error)
         self.sent_cmds_this_node = self.sent_cmds_this_node+1
 
@@ -358,8 +359,8 @@ class Plumber():
         if self.tubo.drought_len()>8:
             debug_prints = True
             if debug_prints:
-                print('<|<|<| Current node stuck waiting:', self.nodes[self.current_node], '|>|>|>')
-                print('Drought len:', self.tubo.drought_len(), ' len of blit:', len(self.tubo.blit(include_history=False)), ' len blit all:', len(self.tubo.blit(include_history=True)))
+                tprint('<|<|<| Current node stuck waiting:', self.nodes[self.current_node], '|>|>|>')
+                tprint('Drought len:', self.tubo.drought_len(), ' len of blit:', len(self.tubo.blit(include_history=False)), ' len blit all:', len(self.tubo.blit(include_history=True)))
             self.send_cmd('Y\necho waiting_for_shell', add_to_packets=False) # Breaking the ssh pipe will make this cause errors.
         return False
 
@@ -368,7 +369,7 @@ class Plumber():
         if node_name == '->':
             raise Exception('The destination node_name is "->" which is a placeholder and (bug) hasnt been replaced by an actual node name.')
         if node_name not in self.nodes:
-            print('<(<(Node names in the dict:', list(self.nodes.keys()), ')>)>')
+            tprint('<(<(Node names in the dict:', list(self.nodes.keys()), ')>)>')
             if node_name in str(list(self.nodes.keys())):
                 raise Exception('This error does not make any sense!')
             raise Exception('Node name not in node dict: '+node_name)
@@ -384,7 +385,7 @@ class Plumber():
     def step(self):
         # Returns True if the entire process is done.
         if self.sent_cmds_this_node>12: # Steps does not include short_wait if we do nothing.
-            print('<|<|<| Current node stuck in loop:', self.nodes[self.current_node], '|>|>|>')
+            tprint('<|<|<| Current node stuck in loop:', self.nodes[self.current_node], '|>|>|>')
             raise Exception('Stuck in a single node most likely node name = ', self.current_node)
 
         t0 = time.time()
@@ -506,7 +507,7 @@ class Plumber():
 
         if cur_node.get('end_node', False):
             return True
-        print('<<<|||<<<Current node:', cur_node, '>>>|||>>>')
+        tprint('<<<|||<<<Current node:', cur_node, '>>>|||>>>')
         raise Exception('The node specified no "jump" or "jump_branch", and is not an "end_node".')
 
     def run(self):
