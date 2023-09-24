@@ -24,20 +24,22 @@ class Sbuild:
         self.is_bytes = is_bytes
 
     def add(self, x):
+        if type(x) is bytes and not self.is_bytes:
+            raise Exception('Trying to add a bytes to a string SBuild.')
+        if type(x) is str and self.is_bytes:
+            raise Exception('Trying to add a string to a bytes SBuild.')
         self.vals.append(x)
 
     def val(self):
-        if self.is_bytes:
-            out = b''.join(self.vals)
-            self.vals = [out.copy()]
-            return out
-        else:
-            out = ''.join(self.vals)
-            self.vals = [out]
-            return out
+        out = (b'' if self.is_bytes else '').join(self.vals)
+        self.vals = [out] # Only compute once.
+        return out
 
     def __str__(self):
-        return str(self.val())
+        v = self.val()
+        if self.is_bytes:
+            return v.decode('utf-8')
+        return v
 
 ######################Small functions######################################
 
@@ -152,7 +154,7 @@ def print_clear_print_buf(tubo):
     # Clears and prints any builtup print buffer.
     if len(str(tubo.print_buf))>0:
         colorful.wrapprint(str(tubo.print_buf)) # Newlines should be contained within the feed so there is no need to print them directly.
-        tubo.print_buf = Sbuild(False)
+        tubo.print_buf = Sbuild(tubo.binary_mode)
 
 def pipe_print_loop(tubo):
     n_close = 0
@@ -184,7 +186,7 @@ def _init_local_subprocess(self, which_proc):
             safe_list.append(ord(the_pipe.read(1)) if self.binary_mode else fittings.utf8_one_char(the_pipe.read))
 
     use_pty = False # Why does pexpect work so much better than vanilla? Is this the secret sauce? But said sauce is hard to use, thus it's False for now.
-    stringy_set_encoding = True # Set encodings if not binary mode.
+    stringy_set_encoding = True # This is one of the not-sure-which-is-better settings.
     #https://gist.github.com/thomasballinger/7979808
     if use_pty:
         import pty
@@ -345,12 +347,12 @@ class MessyPipe:
         self.loop_err = None
         self.init_working_dir = working_dir
         self.proc_obj = None
-        self.packets = [[b'' if binary_mode else '', Sbuild(self.binary_mode), Sbuild(self.binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
+        self.packets = [[b'' if binary_mode else '', Sbuild(binary_mode), Sbuild(binary_mode), time.time(), time.time()]] # Each command: [cmd, out, err, time0, time1]
 
         self.machine_id = None # Optional user data.
         self.restart_fn = None # Optional fn allowing any server to be restarted.
 
-        self.print_buf = Sbuild(False) #Only filled if printouts=True
+        self.print_buf = Sbuild(binary_mode) #Only filled if printouts=True
         self.print_dt = 0.125 # If update dribbles out info character-by-character this prevents excessive print calls.
         self.flush_stdin = True
         self.error_horizons = [0, 0] # Index of where new errors begin to be reported on stdout, stderr.
@@ -364,15 +366,15 @@ class MessyPipe:
                 print_clear_print_buf(self) # So that printouts will always be shown before the blit is calculated.
             packets = self.packets[ix0:ix1]
             if self.binary_mode:
-                out = b''
+                out0 = bytearray() #https://stackoverflow.com/questions/27001419/how-to-append-to-bytes-in-python-3
                 for pak in self.packets:
                     if stdin:
-                        out.extend(pak[0].val())
+                        out0.extend(pak[0].val())
                     if stdout:
-                        out.extend(pak[1].val())
+                        out0.extend(pak[1].val())
                     if stderr:
-                        out.extend(pak[2].val())
-                return out
+                        out0.extend(pak[2].val())
+                return bytes(out0)
             else:
                 return ''.join([(pk[0].val() if stdin else '')+(pk[1].val() if stdout else '')+(pk[2].val() if stderr else '') for pk in packets])
 
@@ -382,6 +384,10 @@ class MessyPipe:
 
     def update(self, is_std_err): # Returns the len of the data.
         def _boring_txt(txt):
+            if self.binary_mode and self.remove_control_chars:
+                raise Exception('remove_control_chars not supported in binary mode.')
+            if self.binary_mode:
+                return txt # It's actually a bytes and won't be processed.
             txt = str(txt).replace('\r\n','\n')
             if self.remove_control_chars:
                 txt = remove_control_chars(txt, True)
@@ -482,7 +488,8 @@ class MessyPipe:
         stderr_blit = self.blit(include_history=True, stdout=False, stderr=True)[self.error_horizons[1]:]
         err_msg = deep_stack.from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=self.machine_id)
         if shift_horizons:
-            self.error_horizons = [len(stdout_blit), len(stderr_blit)]
+            self.error_horizons[0] += len(stdout_blit)
+            self.error_horizons[1] += len(stderr_blit)
         if err_msg:
             old_stack = deep_stack.from_cur_stack()
             err_msg1 = deep_stack.concat(old_stack, err_msg)

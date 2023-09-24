@@ -167,13 +167,17 @@ def from_vanilla_stderr(stderr_blit, compress_multible=False):
 def from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=None):
     # Picks out error messages from a stream; optional helpful_id which will be prepended.
     # Returns None if no error is found.
+    if type(stdout_blit) is bytes: # Error reporting requires human-readable
+        stdout_blit = stdout_blit.decode('utf-8')
+    if type(stderr_blit) is bytes:
+        stderr_blit = stderr_blit.decode('utf-8')
     greeble_mode = from_greebled_stderr(stdout_blit+'\n'+stderr_blit, compress_multible=compress_multible)
     out = None
     if greeble_mode: # Case 1: A verbose error was raised or printed out; supposed to stderr but many people send errors to stdout instead:
         # This is a strong error report, so it is safer to suppress the "vanilla" case below
         out = greeble_mode
     else: # Case 2: Stderr output with a vanilla Exception. Will ignore stdout (Python sends raised exceptions to stderr)
-        out =  from_vanilla_stderr(stderr_blit)
+        out = from_vanilla_stderr(stderr_blit)
     if out:
         return prepend_helpful_id(out, helpful_id) if helpful_id is not None else out
 
@@ -239,7 +243,8 @@ def exec_better_report(code_txt, *args, **kwargs):
     lines = code_txt.strip().split('\n')
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
         output = varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1]
-        tprint(output.encode('utf-8'))
+        out_bytes = output.encode('utf-8')
+        tprint(out_bytes)
 
 def exec_here(modulename, code_txt, delete_new_vars=False):
     # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
@@ -249,7 +254,7 @@ def exec_here(modulename, code_txt, delete_new_vars=False):
     m = modulename if type(modulename) is type(sys) else sys.modules[modulename]
 
     vars0 = set(m.__dict__.keys())
-    exec_better_report(code_txt, vars(m)) # This also makes
+    exec_better_report(code_txt, vars(m)) # Store events.
     new_vars = list(set(m.__dict__.keys())-vars0); new_vars.sort()
 
     out = {}
@@ -261,8 +266,11 @@ def exec_here(modulename, code_txt, delete_new_vars=False):
 
 def exec_feed(in_place_array, line, *args, **kwargs):
     # Consumes code line-by-line and evals any code once the code becomes un-indented.
+    # Will throw any errors raised by the code, both syntax and Exceptions.
+    if type(line) is bytes: # Extra protection, not sure if it is needed.
+        line = line.decode('utf-8')
     unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
-    more_than_comment = not line.startswith('#')
+    more_than_comment = not line.strip().startswith('#')
     code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n')
     even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with unuasual nested triple quotes.
     its_running_time = even_triples and more_than_comment and unindented

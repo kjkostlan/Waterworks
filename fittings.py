@@ -100,10 +100,13 @@ def utf8_one_char(read_bytes_fn):
     #  See: https://stackoverflow.com/questions/18727282/read-subprocess-output-multi-byte-characters-one-by-one
     bytes = read_bytes_fn(1)
     while True:
+        if len(bytes)>4:
+            hexs = ' '.join([hex(b).upper().replace('X','x') for b in bytes[0:4]])
+            raise Exception('4 bytes and still unicode decode error bytes are: '+hexs)
         try:
             return bytes.decode('UTF-8')
         except UnicodeDecodeError as e:
-            if 'unexpected end of data' not in str(e):
+            if 'unexpected end of data' not in str(e) and 'invalid continuation byte' not in str(e):
                 raise e
             bytes = bytes+read_bytes_fn(1)
 
