@@ -9,7 +9,6 @@ tprint = global_vars.tprint
 _head = '{{WaterworksErrPropStack}}' # Identifiers "greebles" used to detect Exceptions in the stream.
 _linehead = '<<Waterworks_ERR>>'
 _tail = '[[ENDWaterworksErrPropStack]]'
-varval_report_wrappers = ['...Water'+'works (starts here) Exec result...', '...of Water'+'works (ends here) Exec...']
 
 ################## String processing fns (Idempotent) ##########################
 
@@ -202,13 +201,6 @@ def _issym(x): # Is x a (single) symbol?
             return False
     return True
 
-def _is_obj(leaf):
-    ty = type(leaf)
-    return ty not in [str, int, float, bool]
-
-def _repr1(x): # Wrap objects in strings so that evaling the code doesn't syntax error.
-    return repr(fittings.cwalk(lambda x: repr(x) if _is_obj(x) else x, x, leaf_only=True))
-
 def eval_better_report(code_line, *args, **kwargs):
     # Error reports that show what code was evaled.
     try:
@@ -219,8 +211,7 @@ def eval_better_report(code_line, *args, **kwargs):
 
 def exec_better_report(code_txt, *args, **kwargs):
     # Raises reports that show what code was executed.
-    # In addition, if the last line is a symbol it will print the value (so that anyone reading our stdout will see it).
-    #   It will wrap the print in deep_stack.varval_report_wrappers
+    # In addition, if the last line is a symbol it will return the value.
     code_txt = code_txt.replace('\r\n','\n')
     try:
         exec(code_txt, *args, **kwargs)
@@ -242,9 +233,9 @@ def exec_better_report(code_txt, *args, **kwargs):
         raise raise_from_message(broken_code_msg+': '+repr(e))
     lines = code_txt.strip().split('\n')
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
-        output = varval_report_wrappers[0]+_repr1(eval(lines[-1], *args, **kwargs))+varval_report_wrappers[1]
-        out_bytes = output.encode('utf-8')
-        tprint(out_bytes)
+        return eval(lines[-1], *args, **kwargs)
+    else:
+        return None
 
 def exec_here(modulename, code_txt, delete_new_vars=False):
     # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
@@ -267,6 +258,7 @@ def exec_here(modulename, code_txt, delete_new_vars=False):
 def exec_feed(in_place_array, line, *args, **kwargs):
     # Consumes code line-by-line and evals any code once the code becomes un-indented.
     # Will throw any errors raised by the code, both syntax and Exceptions.
+    # Returns any "simple varaible" declarations such as a=b+c.
     if type(line) is bytes: # Extra protection, not sure if it is needed.
         line = line.decode('utf-8')
     unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
@@ -276,6 +268,6 @@ def exec_feed(in_place_array, line, *args, **kwargs):
     its_running_time = even_triples and more_than_comment and unindented
     if its_running_time:
         del in_place_array[:]
-        exec_better_report(code, *args, **kwargs)
+        return exec_better_report(code, *args, **kwargs)
     else:
         in_place_array.append(line)
