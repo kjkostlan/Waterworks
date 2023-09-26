@@ -133,6 +133,8 @@ def from_greebled_stderr(stderr_blit, compress_multible=False):
 
 def from_vanilla_stderr(stderr_blit, compress_multible=False):
     # Vanilla exceptions
+    if type(stderr_blit) is bytes:
+        stderr_blit = stderr_blit.decode('utf-8')
     err_ky = 'Traceback (most recent call last)'
     pieces = ('tmp_header_I_want_to_be_excised\n'+_basic_txt(stderr_blit)).split(err_ky)
     if len(pieces)==1:
@@ -170,15 +172,19 @@ def from_stream(stdout_blit, stderr_blit, compress_multible=False, helpful_id=No
         stdout_blit = stdout_blit.decode('utf-8')
     if type(stderr_blit) is bytes:
         stderr_blit = stderr_blit.decode('utf-8')
-    greeble_mode = from_greebled_stderr(stdout_blit+'\n'+stderr_blit, compress_multible=compress_multible)
+    total_blit = stdout_blit+'\n'+stderr_blit
+    greeble_mode = from_greebled_stderr(total_blit, compress_multible=compress_multible)
+    detect_vanilla_stdout_exceptions = True
     out = None
     if greeble_mode: # Case 1: A verbose error was raised or printed out; supposed to stderr but many people send errors to stdout instead:
         # This is a strong error report, so it is safer to suppress the "vanilla" case below
         out = greeble_mode
     else: # Case 2: Stderr output with a vanilla Exception. Will ignore stdout (Python sends raised exceptions to stderr)
-        out = from_vanilla_stderr(stderr_blit)
+        out = from_vanilla_stderr(total_blit if detect_vanilla_stdout_exceptions else stderr_blit)
     if out:
         return prepend_helpful_id(out, helpful_id) if helpful_id is not None else out
+    elif 'raise VerboseError' in total_blit: # A bit of a DEBUG.
+        print('WARNING: Verbose error in the stream not detected')
 
 ########################### Exception handling #################################
 

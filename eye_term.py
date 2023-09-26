@@ -367,7 +367,7 @@ class MessyPipe:
             packets = self.packets[ix0:ix1]
             if self.binary_mode:
                 out0 = bytearray() #https://stackoverflow.com/questions/27001419/how-to-append-to-bytes-in-python-3
-                for pak in self.packets:
+                for pak in packets:
                     if stdin:
                         out0.extend(pak[0].val())
                     if stdout:
