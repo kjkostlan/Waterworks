@@ -2,7 +2,7 @@
 import sys, time, difflib
 from . import ppatch, global_vars
 
-vglobals = global_vars.global_get('ver_watch_uwglobals', {'logss':{}, 'txt_edits':[], 'module_watcher_codes':{}})
+vglobals = global_vars.global_get('var_watch_uwglobals', {'logss':{}, 'txt_edits':[], 'module_watcher_codes':{}})
 
 ############################ Var mutation watching #############################
 
@@ -39,6 +39,9 @@ def logged_fn(modulename, var_name, f_obj):
         return out
     return f
 
+def rm_fn_watcher(modulename, var_name):
+    ppatch.remove_patch(modulename, var_name)
+
 def add_fn_watcher(modulename, var_name, f_code=None):
     # Changes the function in var_name to record it's inputs and outputs.
     # Replaces any old watchers.
@@ -49,15 +52,12 @@ def add_fn_watcher(modulename, var_name, f_code=None):
     if f_code is None:
         f_obj = ppatch.get_var(modulename, var_name)
     else:
-        f_obj = eval(f_code) #TODO: eval in right environment.
+        f_obj = eval(f_code, locals=None, globals=m.__dict__) # Since globals is top-level, not sure how it will work inside of a class.
     f = logged_fn(modulename, var_name, f_obj)
 
     ppatch.set_var(modulename, var_name, f)
     vglobals['module_watcher_codes'][modulename+'.'+var_name] = f_code
     return f
-
-def rm_fn_watcher(modulename, var_name):
-    ppatch.remove_patch(modulename, var_name)
 
 def remove_module_watchers(modulename):
     var_dict = ppatch.get_vars(modulename, nest_inside_classes=True)
@@ -74,7 +74,7 @@ def add_module_watchers(modulename):
 
 def add_all_watchers_global():
     # Adds all watchers to every module (except this one!)
-    # Warning: dangerous function alert may crash if not careful.
+    # Rarely used since it generally destroys performance.
     for k in sys.modules.keys():
         if k != __name__:
             add_module_watchers(k)
@@ -104,8 +104,12 @@ def just_after_module_update(modulename):
             var_name = varq_name[len(modulename)+1:]
             add_fn_watcher(modulename, var_name, watchers[varq_name])
 
-def get_logs():
+def get_all_logs():
     return vglobals['logss'].copy()
+
+def get_logs(modulename, var_name):
+    k = modulename+'.'+var_name
+    return vglobals['logss'].get(k,[]).copy()
 
 def remove_all_logs():
     vglobals['logss'] = {}
