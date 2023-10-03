@@ -41,6 +41,35 @@ def reset_var(modulename, var_name):
     if is_modified(modulename, var_name):
         set_var(modulename, var_name, _gld['original_varss'][modulename][var_name])
 
+def temp_exec(modulename, class_name, txt):
+    # Temporary exec, inside a class or inside a module.
+    # Can be undone with "reset_module_vars(modulename)"
+    _gld['original_varss'][modulename] = _gld['original_varss'].get(modulename, {})
+    var_store = _gld['original_varss'][modulename]
+
+    if not class_name or class_name == '':
+        pieces = []
+    else:
+        pieces = class_name.split('.')
+
+    y = sys.modules[modulename]
+    globals = y.__dict__
+    locals = {}
+    for p in pieces:
+        y = getattr(y,p)
+        locals = {**locals, **dict(y.__dict__)} # Class dicts aren't dicts and must be cast to dicts.
+
+    prepend = '' if len(pieces) == 0 else '.'.join(pieces)+'.'
+    vars0 = dict(y.__dict__)
+    exec(txt, globals, locals)
+    vars1 = dict(y.__dict__)
+    for k in set(vars0.keys()).union(set(vars1.keys())):
+        if k.endswith('__') or prepend+k in var_store:
+            continue
+        v0 = vars0.get(k, None); v1 = vars1.get(k, None)
+        if v0 is not v1:
+            var_store[prepend+k] = v0 # Store the old var, since the new one has changed. Will store None for created vars.
+
 ############################### Multible updates ###############################
 
 def _get_vars_core(out, x, subpath, nest, usedids):
@@ -67,3 +96,11 @@ def get_vars(modulename, nest_inside_classes=True):
 
 def get_all_vars(nest_inside_classes=True): # For each module.
     return dict(zip(sys.modules.keys(), [get_vars(m, nest_inside_classes) for m in sys.modules.values()]))
+
+def reset_module_vars(modulename):
+    for var_name in list(_gld['original_varss'].get(modulename, {}).keys()):
+        reset_var(modulename, var_name)
+
+def reset_all_vars():
+    for modulename in list(_gld['original_varss'].keys()):
+        reset_module_vars(modulename)
