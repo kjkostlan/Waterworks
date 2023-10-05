@@ -200,6 +200,8 @@ def _issym(x): # Is x a (single) symbol?
     x = x.strip()
     if len(x)==0 or x=='pass':
         return False
+    if '"' in x or "'" in x:
+        return False
     if x.startswith('#'):
         return False
     for ch in '=+-/*%{}()[]\n ^@:':
@@ -267,12 +269,20 @@ def exec_feed(in_place_array, line, *args, **kwargs):
     # Returns any "simple varaible" declarations such as a=b+c.
     if type(line) is bytes: # Extra protection, not sure if it is needed.
         line = line.decode('utf-8')
+    line = line.replace('\r\n','\n')
+    if line.endswith('\n'): # Trailing newlines will be added in the join statement.
+        line = line[0:-1]
     unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
     more_than_comment = not line.strip().startswith('#')
     code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n')
     even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with unuasual nested triple quotes.
     its_running_time = even_triples and more_than_comment and unindented
+    debug_exec_feed = False
+    if debug_exec_feed:
+        print('EXEC FEED:', repr(line), even_triples, unindented, in_place_array, 'run?', its_running_time)
     if its_running_time:
+        if debug_exec_feed:
+            print('RUN THIS CODE:', repr(code))
         del in_place_array[:]
         return exec_better_report(code, *args, **kwargs)
     else:
