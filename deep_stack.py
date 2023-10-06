@@ -10,6 +10,14 @@ _head = '{{WaterworksErrPropStack}}' # Identifiers "greebles" used to detect Exc
 _linehead = '<<Waterworks_ERR>>'
 _tail = '[[ENDWaterworksErrPropStack]]'
 
+class Null: # Difference between a symbol that evals to None and a block of code without an output.
+    def __bool__(self):
+        return False
+    def __str__(self):
+        return 'None'
+    def __repr__(self):
+        return 'None'
+
 ################## String processing fns (Idempotent) ##########################
 
 def _basic_txt(x):
@@ -240,8 +248,14 @@ def exec_better_report(code_txt, *args, **kwargs):
 
         raise raise_from_message(broken_code_msg+': '+repr(e))
     lines = code_txt.strip().split('\n')
+    debug_show_exec_block = False
+    if debug_show_exec_block:
+        print('CODE:', repr(code_txt), 'Line count:', len(lines), 'Ending line:', lines[-1], 'Ends with symbol?', _issym(lines[-1]))
     if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
-        return eval(lines[-1], *args, **kwargs)
+        out = eval(lines[-1], *args, **kwargs)
+        if out is None:
+            return Null()
+        return out
     else:
         return None
 
@@ -274,7 +288,7 @@ def exec_feed(in_place_array, line, *args, **kwargs):
         line = line[0:-1]
     unindented = len(line.lstrip()) == len(line) and len(line.strip())>0
     more_than_comment = not line.strip().startswith('#')
-    code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n')
+    code = '\n'.join(in_place_array)+'\n'+line; code = code.replace('\r\n','\n').strip()
     even_triples = (len(code)-len(code.replace('"""','').replace("'''",'')))%6==0 # Can be broken with unuasual nested triple quotes.
     its_running_time = even_triples and more_than_comment and unindented
     debug_exec_feed = False

@@ -323,8 +323,8 @@ class MessyPipe:
 
     def _to_input(self, x, include_newline=True):
         x = self._to_output(x)
-        if include_newline and not self.binary_mode:
-            x = x+'\n'
+        if include_newline:
+            x = x+('\n'.encode() if self.binary_mode else '\n')
         return x
 
     def ensure_init(self):
