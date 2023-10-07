@@ -1,3 +1,4 @@
+# Tools to keep track of changes, update Python modules after save, and represent said changes as a dict.
 import os, sys, importlib, time
 from . import file_io, modules, fittings, var_watch, ppatch, global_vars
 tprint = global_vars.tprint
@@ -120,23 +121,6 @@ def update_user_changed_modules(update_on_first_see=True, use_date=False):
             out[m] = update_one_module(m, fnames[m], not update_on_first_see)
     return out
 
-def startup_cache_sources(modulenames=None):
-    # Stores the file contents and date-mod to compare against for updating.
-    if modulenames is None:
-        filenames = modules.module_fnames(True).values()
-    else:
-        filenames = [modules.module_file(m) for m in modulenames]
-    for fname in filenames:
-        if fname is not None and fname.endswith('.py'):
-            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
-            uglobals['filemodified'][fname] = file_io.date_mod(fname)
-
-def startup_python(modulename, pyfname, exec_module=True):
-    out = modules.module_from_file(modulename, pyfname, exec_module)
-    uglobals['filecontents'][pyfname] = file_io.fload(pyfname) # no need to call full _fuptate.
-    uglobals['filemodified'][pyfname] = file_io.date_mod(pyfname)
-    return out
-
 def module_fnames(): # Code from Termpylus.
     # Only modules that have files, and dict values are module names.
     # Also can restrict to user-only files.
@@ -158,40 +142,21 @@ def update_python_interp(delta):
             if mname in sys.modules:
                 update_one_module(inv_fnames[fname], fname)
 
-####################### Updating the python objects directly ###################
+############################Caching the source##################################
 
-def default_update_object(x, kvs):
-    # Updates x by setting all keys in kvs to thier values.
-    TODO
+def cache_module_code(modulenames=None):
+    # Stores the file contents and date-mod to compare against for updating.
+    if modulenames is None:
+        filenames = modules.module_fnames(True).values()
+    else:
+        filenames = [modules.module_file(m) for m in modulenames]
+    for fname in filenames:
+        if fname is not None and fname.endswith('.py'):
+            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
+            uglobals['filemodified'][fname] = file_io.date_mod(fname)
 
-def same_inst_method(x,y):
-    # Are x and y the same methods of the same object instance? (False unless both are methods).
-    # Python generates methods dynamically on an attribute look-up so "is" won't work.
-    if str(type(x)) == "<class 'method'>" and str(type(y)) == "<class 'method'>":
-        return x.__self__ is y.__self__
-    return False
-
-def default_eq_for_update(x,y):
-    # True here means we need to update the values.
-    return x is y or same_inst_method(x,y)
-
-def recursive_obj_update(todict_result, replace_pair, update_fn=default_update_object, eq_fn=default_eq_for_update):
-    # Recursivly applies replace_pair to todict_result, changing objects held in
-    # todict_result[<some path>][todict.ob_key].
-    TODO
-
-def function_flush():
-    # Looks high and low to the far corners of the Pythonverse for references to out-of-date module functions.
-    # Replaces them with the newest version when necessary.
-    # Can be an expensive and slow function, run when things seem to not be updated.
-    # Will NOT work on class methods passed as a fn param, since these attributes are generated dynamicalls.
-    uglobals['varflush_queue']
-    TODO
-
-######################################The src cache#############################
-
-def src_cache_from_disk():
-    # Gets the src cache from the disk, filename => contetns with local cache.
+def rel_path_filetree():
+    # Gets the src cache from the disk, filename => contents with local cache.
     # Looks for all python files within this directory.
     fname2contents = {}
     for root, dirs, files in os.walk(".", topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
@@ -201,10 +166,10 @@ def src_cache_from_disk():
                 fname2contents[fnamer] = file_io.fload(fnamer)
     return fname2contents
 
-def src_cache_diff(old_cache, new_cache=None):
+def rel_path_filetree_diff(old_cache, new_cache=None):
     # Changed file local path => contents; deleted files map to None
     if new_cache is None:
-        new_cache = src_cache_from_disk()
+        new_cache = rel_path_filetree()
 
     out = {}
     for k in old_cache.keys():
@@ -216,10 +181,10 @@ def src_cache_diff(old_cache, new_cache=None):
     return out
 
 def unpickle64_and_update(txt64, update_us=True, update_vms=True):
-    old_cache = src_cache_from_disk()
+    old_cache = rel_path_filetree()
     file_io.disk_unpickle64(txt64)
-    new_cache = src_cache_from_disk()
-    delta = src_cache_diff(old_cache, new_cache)
+    new_cache = rel_path_filetree()
+    delta = rel_path_filetree_diff(old_cache, new_cache)
     if update_us:
         update_python_interp(delta)
     if update_vms:

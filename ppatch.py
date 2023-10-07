@@ -72,6 +72,36 @@ def temp_exec(modulename, class_name, txt):
 
 ############################### Multible updates ###############################
 
+def default_update_object(x, kvs):
+    # Updates x by setting all keys in kvs to thier values.
+    TODO
+
+def same_inst_method(x,y):
+    # Are x and y the same methods of the same object instance? (False unless both are methods).
+    # Python generates methods dynamically on an attribute look-up so "is" won't work.
+    if str(type(x)) == "<class 'method'>" and str(type(y)) == "<class 'method'>":
+        return x.__self__ is y.__self__
+    return False
+
+def default_eq_for_update(x,y):
+    # True here means we need to update the values.
+    return x is y or same_inst_method(x,y)
+
+def recursive_obj_update(todict_result, replace_pair, update_fn=default_update_object, eq_fn=default_eq_for_update):
+    # Recursivly applies replace_pair to todict_result, changing objects held in
+    # todict_result[<some path>][todict.ob_key].
+    TODO
+
+def function_flush():
+    # Looks high and low to the far corners of the Pythonverse for references to out-of-date module functions.
+    # Replaces them with the newest version when necessary.
+    # Can be an expensive and slow function, run when things seem to not be updated.
+    # Will NOT work on class methods passed as a fn param, since these attributes are generated dynamicalls.
+    uglobals['varflush_queue']
+    TODO
+
+############################### Multible updates ###############################
+
 def _get_vars_core(out, x, subpath, nest, usedids):
     d = x.__dict__ # Found in both modules and classes.
     for k in d.keys():
