@@ -142,34 +142,46 @@ def update_python_interp(delta):
             if mname in sys.modules:
                 update_one_module(inv_fnames[fname], fname)
 
-############################Caching the source##################################
+############################Reading source files##################################
+
+def cache_src_files(files):
+    # Caches source files into global_vars['fileconents'] and global_vars['file_modified']; absolute paths are cached.
+    # Generally this is ran at startup and the cache is compared-to to detect how files were changed.
+    if type(files) is str:
+        files = [files]
+    for fname in files:
+        fname = os.path.realpath(fname).replace('\\','/')
+        if fname and fname.endswith('.py'):
+            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
+            uglobals['filemodified'][fname] = file_io.date_mod(fname)
 
 def cache_module_code(modulenames=None):
-    # Stores the file contents and date-mod to compare against for updating.
+    # Stores all modules in sys.modules if it can find the .py file.
     if modulenames is None:
         filenames = modules.module_fnames(True).values()
     else:
         filenames = [modules.module_file(m) for m in modulenames]
-    for fname in filenames:
-        if fname is not None and fname.endswith('.py'):
-            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
-            uglobals['filemodified'][fname] = file_io.date_mod(fname)
+    cache_src_files(filenames)
 
-def rel_path_filetree():
+def py_walk_list(root='.', relative_paths=True, load=True):
+    # Search for .py files from root, returns relative and absolute paths.
     # Gets the src cache from the disk, filename => contents with local cache.
-    # Looks for all python files within this directory.
+    # Looks for all python files within this directory. Paths are relative.
     fname2contents = {}
-    for root, dirs, files in os.walk(".", topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
+    for root, dirs, files in os.walk(root, topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
         for fname in files:
             if fname.endswith('.py'):
-                fnamer = file_io.rel_path(os.path.join(root, fname))
-                fname2contents[fnamer] = file_io.fload(fnamer)
+                if relative_paths:
+                    fnamer = file_io.rel_path(os.path.join(root, fname)).replace('\\','/')
+                else:
+                    fnamer = os.path.realpath(os.path.join(root, fname)).replace('\\','/')
+                fname2contents[fnamer] = file_io.fload(fnamer) if load else True
     return fname2contents
 
-def rel_path_filetree_diff(old_cache, new_cache=None):
+def filelist_diff(old_cache, new_cache=None):
     # Changed file local path => contents; deleted files map to None
     if new_cache is None:
-        new_cache = rel_path_filetree()
+        new_cache = py_walk_list()
 
     out = {}
     for k in old_cache.keys():
@@ -181,10 +193,10 @@ def rel_path_filetree_diff(old_cache, new_cache=None):
     return out
 
 def unpickle64_and_update(txt64, update_us=True, update_vms=True):
-    old_cache = rel_path_filetree()
+    old_cache = py_walk_list(root='.', relative_paths=True, load=True)
     file_io.disk_unpickle64(txt64)
-    new_cache = rel_path_filetree()
-    delta = rel_path_filetree_diff(old_cache, new_cache)
+    new_cache = py_walk_list(root='.', relative_paths=True, load=True)
+    delta = filetree_diff(old_cache, new_cache)
     if update_us:
         update_python_interp(delta)
     if update_vms:
