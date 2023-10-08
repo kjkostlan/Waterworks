@@ -1,3 +1,4 @@
+# Disk I/O with change tracking and other features.
 import os, io, time, stat, pickle, pathlib, codecs, shutil
 from . import global_vars
 tprint = global_vars.tprint
@@ -7,6 +8,12 @@ try:
 except:
     debug_restrict_disk_modifications_to_these = None
 
+# Global variables:
+  # original_txts = the txt b4 modifications, set in contents_on_first_call and in save.
+     # Different than the (kept up-to-date) py_updater.uglobals['filecontents'].
+  # original_cwd = set once to realpath('.')
+  # user_paths = set to [realpath('.')]
+  # checkpoints = Optional feature. Name and save file snapshots.
 ph = os.path.realpath('.').replace('\\','/')
 fglobals = global_vars.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
                                                'user_paths':[ph],'checkpoints':{},'created_files':set()})
@@ -336,7 +343,6 @@ def copy_with_overwrite(folderA, folderB):
 def revert_checkpoint(check_name):
     # Revert to a given checkpoint.
     fname2txt = fglobals['checkpoints'][check_name].copy() # The copy is important since it is modified inside the for loop!
-
 
 #################################Debug safety and testing#######################
 

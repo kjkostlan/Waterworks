@@ -3,6 +3,13 @@ import os, sys, importlib, time
 from . import file_io, modules, fittings, var_watch, ppatch, global_vars
 tprint = global_vars.tprint
 
+# Use of global variables:
+#  uglobals['filecontents'] is updated with the current contents during _fupdate() and cache_src_files(). Used by needs_update()
+   # Difference from file_io.fglobals['original_txts']: filecontents is updated during _fupdate(), but original_txts is only set once.
+#  uglobals['filemodified'] has a similar lifecycle to 'filecontents' but stores the modified date.
+#  uglobals['varflush_queue'] appended in _fupdate, used in ppatch.function_flush()
+#  uglobals['user_paths'] startis as [os.realpath('.')], added to with add_user_path, queried with get_user_paths, used by needs_update.
+#  sys.modules: Used in _fupdate, module_fnames, and update_python_interp
 uglobals = global_vars.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
 

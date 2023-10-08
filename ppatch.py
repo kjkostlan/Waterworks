@@ -3,6 +3,10 @@
 import sys, re
 from . import global_vars
 
+# Global variables used:
+  # _gld['original_varss'] Saved in set_var, used by reset_var and temp_exec.
+  # sys.modules: Used in get_var, set_var, temp_exec, get_vars, get_all_vars.
+  #  Note: 'vars' are usually functions.
 _gld = global_vars.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
 
 def _v0(modulename, var_name):

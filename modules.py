@@ -2,7 +2,9 @@
 import sys, os, importlib, io, re
 from . import file_io, py_updater, global_vars
 
-mglobals = global_vars.global_get('modules_globals', {'varflush_queue':[]})
+# Global variables used:
+#   py_updater.uglobals['user_paths'] = pop_from_path and indirectly add_to_path.
+#   sys.modules is used by many different functions.
 
 def add_to_path(folder_name):
     # Also adds the py_updater paths.

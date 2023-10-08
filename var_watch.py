@@ -2,6 +2,12 @@
 import sys, time, difflib
 from . import ppatch, global_vars
 
+# Use of global variables:
+   # vglobals['logss'] = Dict of lists of logs. Written to by variables if said variable has been add_fn_watcher()'ed.
+   # vglobals['txt_edits'] = Recorded by record_txt_update, queried by get_txt_edits.
+     # Stores *per variable* rather than *per file* changes.
+   # vglobals['module_watcher_codes']: Optional, if add_fn_watcher specifies custom code to run.
+   # sys.modules: Used by add_fn_watcher, add_all_watchers_global, remove_fn_watcher
 vglobals = global_vars.global_get('var_watch_uwglobals', {'logss':{}, 'txt_edits':[], 'module_watcher_codes':{}})
 
 ############################ Var mutation watching #############################
