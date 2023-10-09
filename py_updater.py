@@ -71,7 +71,6 @@ def _module_update_core(fname, modulename):
         if old_txt != new_txt:
             if old_txt is None:
                 raise Exception('None old_text; files should be preloaded.')
-            var_watch.record_txt_update(modulename, fname, fittings.txt_edits(old_txt, new_txt))
     else:
         old_txt = None
     uglobals['filecontents'][fname] = new_txt

@@ -1,6 +1,6 @@
 # Disk I/O with change tracking and other features.
 import os, io, time, stat, pickle, pathlib, codecs, shutil
-from . import global_vars
+from . import global_vars, fittings
 tprint = global_vars.tprint
 
 try:
@@ -14,8 +14,10 @@ except:
   # original_cwd = set once to realpath('.')
   # user_paths = set to [realpath('.')]
   # checkpoints = Optional feature. Name and save file snapshots.
+  # txt_edits = Recorded by record_txt_update, queried by get_txt_edits. Simple list.
+
 ph = os.path.realpath('.').replace('\\','/')
-fglobals = global_vars.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph,
+fglobals = global_vars.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph, 'txt_edits':[],
                                                'user_paths':[ph],'checkpoints':{},'created_files':set()})
 
 def linux_if_str(txt):
@@ -221,6 +223,16 @@ def _fsave1(fname, txt, mode, tries=12, retry_delay=1.0):
             file_obj.write(txt)
     _unwindoze_attempt(f, fname, tries, retry_delay)
 
+def record_txt_update(fname, the_edits):
+    # Standard record updates. The edit is of the form [ix0, ix1, inserted_txt]
+    t_now = time.time()
+    for the_edit in the_edits:
+        ed1 = [fname]+the_edit+[t_now]
+        fglobals['txt_edits'].append(ed1)
+
+def get_txt_edits():
+    return list(fglobals['txt_edits'])
+
 def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
     # Automatically stores the original txts and updates modules if fname cooresponds to a module.
     fname = abs_path(fname)
@@ -233,6 +245,10 @@ def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
         fglobals['created_files'].add(fname)
     _fsave1(fname, txt, "wb" if bin_mode else "w", tries, retry_delay)
 
+    if old_txt != txt:
+        the_edits = fittings.txt_edits(old_txt, txt)
+        the_edits1 = [[ed[0], ed[1], old_txt[ed[0]:ed[1]], ed[2]] for ed in the_edits]
+        record_txt_update(fname, the_edits1)
     if old_txt != txt and update_module: # Update the module if the text changed and the file cooresponds to a module.
         from . import py_updater # This circular dependency would be akward to break.
         from . import modules # This one somewhat less so.
