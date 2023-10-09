@@ -4,13 +4,13 @@ from . import file_io, modules, fittings, var_watch, ppatch, global_vars
 tprint = global_vars.tprint
 
 # Use of global variables:
-#  uglobals['filecontents'] is updated with the current contents during _fupdate() and cache_src_files(). Used by needs_update()
-   # Difference from file_io.fglobals['original_txts']: filecontents is updated during _fupdate(), but original_txts is only set once.
-#  uglobals['filemodified'] has a similar lifecycle to 'filecontents' but stores the modified date.
-#  uglobals['varflush_queue'] appended in _fupdate, used in ppatch.function_flush()
+#  uglobals['filecontents_last_module_update'] is updated with the current contents during _module_update_core(). Used by needs_update()
+   # Difference from file_io.fglobals['original_txts']: 'filecontents_last_module_update' is updated whenever the module is.
+#  uglobals['filemodified_last_module_update'] has a similar lifecycle to 'filecontents_last_module_update' but stores the modified date.
+#  uglobals['varflush_queue'] appended in _module_update_core, used in ppatch.function_flush()
 #  uglobals['user_paths'] startis as [os.realpath('.')], added to with add_user_path, queried with get_user_paths, used by needs_update.
 #  sys.modules: Used in _fupdate, module_fnames, and update_python_interp
-uglobals = global_vars.global_get('updater_globals', {'filecontents':{}, 'filemodified':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
+uglobals = global_vars.global_get('updater_globals', {'filecontents_last_module_update':{}, 'filemodified_last_module_update':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
 printouts = True
 
 class ModuleUpdate:
@@ -52,12 +52,12 @@ def needs_update(modulename, update_on_first_see=True, use_date=False):
     fname = file_io.abs_path(modules.module_file(modulename), True)
     if True not in ['!'+ph in '!'+fname for ph in uglobals['user_paths']]:
         return False # Active paths only.
-    if fname not in uglobals['filecontents']: # first time seen.
+    if fname not in uglobals['filecontents_last_module_update']: # first time seen.
         return update_on_first_see
     elif use_date:
-        return uglobals['filemodified'][fname] < file_io.date_mod(fname)
+        return uglobals['filemodified_last_module_update'][fname] < file_io.date_mod(fname)
     else:
-        return uglobals['filecontents'][fname] != file_io.fload(fname)
+        return uglobals['filecontents_last_module_update'][fname] != file_io.fload(fname)
 
 def _module_update_core(fname, modulename):
     old_vars = ppatch.get_vars(modulename)
@@ -66,15 +66,15 @@ def _module_update_core(fname, modulename):
     file_io.clear_pycache(fname)
     importlib.reload(sys.modules[modulename])
     new_txt = file_io.fload(fname)
-    if fname in uglobals['filecontents']:
-        old_txt = uglobals['filecontents'][fname]
+    if fname in uglobals['filecontents_last_module_update']:
+        old_txt = uglobals['filecontents_last_module_update'][fname]
         if old_txt != new_txt:
             if old_txt is None:
                 raise Exception('None old_text; files should be preloaded.')
     else:
         old_txt = None
-    uglobals['filecontents'][fname] = new_txt
-    uglobals['filemodified'][fname] = time.time() # Does date modified use the same as our own time?
+    uglobals['filecontents_last_module_update'][fname] = new_txt
+    uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
 
     new_vars = ppatch.get_vars(modulename)
 
@@ -103,12 +103,16 @@ def update_user_changed_modules(update_on_first_see=True, use_date=False):
     # use_date True should be faster but maybe miss some files?
     # Returns {mname: ModuleUpdate object}
     fnames = modules.module_fnames(user_only=True)
-    #print('Updating USER MODULES, '+str(len(uglobals['filecontents']))+' files currently cached,', str(len(fnames)), 'user modules recognized.')
+    #print('Updating USER MODULES, '+str(len(uglobals['filecontents_last_module_update']))+' files currently cached,', str(len(fnames)), 'user modules recognized.')
 
     out = {}
     for m in fnames.keys():
         if needs_update(m, update_on_first_see, use_date):
             out[m] = update_one_module(m, fnames[m], not update_on_first_see)
+        else:
+            fnames = fnames[m]
+            uglobals['filecontents_last_module_update'][fname] = file_io.fload(fname)
+            uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
     return out
 
 def module_fnames(): # Code from Termpylus.
@@ -132,46 +136,40 @@ def update_python_interp(delta):
             if mname in sys.modules:
                 update_one_module(inv_fnames[fname], fname)
 
-############################Reading source files##################################
+############################Walking source files##################################
 
-def cache_src_files(files):
-    # Caches source files into global_vars['fileconents'] and global_vars['file_modified']; absolute paths are cached.
-    # Generally this is ran at startup and the cache is compared-to to detect how files were changed.
-    if type(files) is str:
-        files = [files]
-    for fname in files:
-        fname = os.path.realpath(fname).replace('\\','/')
-        if fname and fname.endswith('.py'):
-            uglobals['filecontents'][fname] = file_io.fload(fname) # no need to call full _fuptate.
-            uglobals['filemodified'][fname] = file_io.date_mod(fname)
-
-def cache_module_code(modulenames=None):
-    # Stores all modules in sys.modules if it can find the .py file.
-    if modulenames is None:
-        filenames = modules.module_fnames(True).values()
-    else:
-        filenames = [modules.module_file(m) for m in modulenames]
-    cache_src_files(filenames)
-
-def py_walk_list(root='.', relative_paths=True, load=True):
-    # Search for .py files from root, returns relative and absolute paths.
+def py_walk_list(root='.', relative_paths=True):
+    # Recursivly look for .py files.
     # Gets the src cache from the disk, filename => contents with local cache.
     # Looks for all python files within this directory. Paths are relative.
-    fname2contents = {}
+    filelist = []
     for root, dirs, files in os.walk(root, topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
         for fname in files:
             if fname.endswith('.py'):
                 if relative_paths:
-                    fnamer = file_io.rel_path(os.path.join(root, fname)).replace('\\','/')
+                    fname1 = file_io.rel_path(os.path.join(root, fname)).replace('\\','/')
                 else:
-                    fnamer = os.path.realpath(os.path.join(root, fname)).replace('\\','/')
-                fname2contents[fnamer] = file_io.fload(fnamer) if load else True
-    return fname2contents
+                    fname1 = os.path.realpath(os.path.join(root, fname)).replace('\\','/')
+                filelist.append(fname1)
+    return fname1
 
-def filelist_diff(old_cache, new_cache=None):
+def walk_all_user_paths(relative_paths=False):
+    # Walk all subfolders within each user path.
+    cat_lists_here = []
+    phs = set(uglobals['user_paths']); phs.sort()
+    for ph in phs:
+        cat_lists_here.extend(ph, relative_paths=relative_paths)
+    return cat_lists_here
+
+def py_walk_getcache(root='.', relative_paths=True):
+    # Dict from path to file list.
+    files = py_walk_list(root, relative_paths)
+    return dict(zip(files, [file_io.fload(fname) for fname in files]))
+
+def cache_diff(old_cache, new_cache=None):
     # Changed file local path => contents; deleted files map to None
     if new_cache is None:
-        new_cache = py_walk_list()
+        new_cache = py_walk_getcache()
 
     out = {}
     for k in old_cache.keys():
@@ -183,10 +181,10 @@ def filelist_diff(old_cache, new_cache=None):
     return out
 
 def unpickle64_and_update(txt64, update_us=True, update_vms=True):
-    old_cache = py_walk_list(root='.', relative_paths=True, load=True)
+    old_cache = py_walk_getcache(root='.', relative_paths=True)
     file_io.disk_unpickle64(txt64)
-    new_cache = py_walk_list(root='.', relative_paths=True, load=True)
-    delta = filetree_diff(old_cache, new_cache)
+    new_cache = py_walk_getcache(root='.', relative_paths=True)
+    delta = cache_diff(old_cache, new_cache)
     if update_us:
         update_python_interp(delta)
     if update_vms:
