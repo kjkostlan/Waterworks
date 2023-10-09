@@ -64,7 +64,14 @@ def _module_update_core(fname, modulename):
     fname = file_io.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
-    importlib.reload(sys.modules[modulename])
+    try:
+        importlib.reload(sys.modules[modulename])
+    except Exception as e:
+        if "spec not found for the module '__main__'" in str(e):
+            print('Warning: Cannot reload the __main__ module.')
+            pass
+        else:
+            raise e
     new_txt = file_io.fload(fname)
     if fname in uglobals['filecontents_last_module_update']:
         old_txt = uglobals['filecontents_last_module_update'][fname]
@@ -102,16 +109,16 @@ def update_user_changed_modules(update_on_first_see=True, use_date=False):
     # Updates modules that aren't pip packages or builtin.
     # use_date True should be faster but maybe miss some files?
     # Returns {mname: ModuleUpdate object}
-    fnames = modules.module_fnames(user_only=True)
+    mod_fnames = modules.module_fnames(user_only=True)
     #print('Updating USER MODULES, '+str(len(uglobals['filecontents_last_module_update']))+' files currently cached,', str(len(fnames)), 'user modules recognized.')
 
     out = {}
-    for m in fnames.keys():
+    for m in mod_fnames.keys():
+        fname = mod_fnames[m]
         if needs_update(m, update_on_first_see, use_date):
-            out[m] = update_one_module(m, fnames[m], not update_on_first_see)
+            out[m] = update_one_module(m, fname, not update_on_first_see)
         else:
-            fnames = fnames[m]
-            uglobals['filecontents_last_module_update'][fname] = file_io.fload(fname)
+            uglobals['filecontents_last_module_update'][fname] = file_io.fload(fname) # These may not be set if update_on_first_see is False.
             uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
     return out
 
