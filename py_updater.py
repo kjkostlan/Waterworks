@@ -48,7 +48,18 @@ def add_user_path(ph):
 def get_user_paths():
     return uglobals['user_paths'].copy()
 
-def _fupdate(fname, modulename):
+def needs_update(modulename, update_on_first_see=True, use_date=False):
+    fname = file_io.abs_path(modules.module_file(modulename), True)
+    if True not in ['!'+ph in '!'+fname for ph in uglobals['user_paths']]:
+        return False # Active paths only.
+    if fname not in uglobals['filecontents']: # first time seen.
+        return update_on_first_see
+    elif use_date:
+        return uglobals['filemodified'][fname] < file_io.date_mod(fname)
+    else:
+        return uglobals['filecontents'][fname] != file_io.fload(fname)
+
+def _module_update_core(fname, modulename):
     old_vars = ppatch.get_vars(modulename)
     fname = file_io.abs_path(fname, True).replace('\\','/')
 
@@ -72,33 +83,6 @@ def _fupdate(fname, modulename):
     uglobals['varflush_queue'].append(out)
     return out
 
-def save_py_file(py_file, contents, assert_py_module=False):
-    # Saves a python file and makes all the needed updates to the modules.
-    py_file = file_io.abs_path(py_file, True).replace('\\','/')
-
-    old_txt = file_io.fload(py_file)
-    file_io.fsave(py_file, contents)
-
-    f = modules.module_fnames(True)
-    for k in f: # a little inefficient to loop through each modulename.
-        if f[k] == py_file and old_txt != contents:
-            if printouts:
-                tprint('Saving to module:', k)
-            return _fupdate(py_file, k)
-    if assert_py_module:
-        raise Exception('Filename not in listed modules:' + py_file)
-
-def needs_update(modulename, update_on_first_see=True, use_date=False):
-    fname = file_io.abs_path(modules.module_file(modulename), True)
-    if True not in ['!'+ph in '!'+fname for ph in uglobals['user_paths']]:
-        return False # Active paths only.
-    if fname not in uglobals['filecontents']: # first time seen.
-        return update_on_first_see
-    elif use_date:
-        return uglobals['filemodified'][fname] < file_io.date_mod(fname)
-    else:
-        return uglobals['filecontents'][fname] != file_io.fload(fname)
-
 def update_one_module(modulename, fname=None, assert_main=True):
     # The module must already be in the file.
     if modulename == '__main__' and assert_main: # odd case, generates spec not found error.
@@ -111,7 +95,7 @@ def update_one_module(modulename, fname=None, assert_main=True):
         raise Exception('No fname supplied and cannot find the file.')
     tprint('Updating MODULE:', modulename, fname)
 
-    out = _fupdate(fname, modulename)
+    out = _module_update_core(fname, modulename)
     var_watch.just_after_module_update(modulename)
     return out
 

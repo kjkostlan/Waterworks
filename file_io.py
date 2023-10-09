@@ -221,15 +221,28 @@ def _fsave1(fname, txt, mode, tries=12, retry_delay=1.0):
             file_obj.write(txt)
     _unwindoze_attempt(f, fname, tries, retry_delay)
 
-def fsave(fname, txt, tries=12, retry_delay=1.0):
-    # Automatically stores the original txts.
+def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
+    # Automatically stores the original txts and updates modules if fname cooresponds to a module.
     fname = abs_path(fname)
+    bin_mode = type(txt) is bytes
+    old_txt = fload(fname, bin_mode=bin_mode)
     _update_checkpoints_before_saving(fname)
     if os.path.exists(fname):
         contents_on_first_call(fname) # Save the old contents.
     else:
         fglobals['created_files'].add(fname)
-    _fsave1(fname, txt, "w", tries, retry_delay)
+    _fsave1(fname, txt, "wb" if bin_mode else "w", tries, retry_delay)
+
+    if old_txt != txt and update_module: # Update the module if the text changed and the file cooresponds to a module.
+        from . import py_updater # This circular dependency would be akward to break.
+        from . import modules # This one somewhat less so.
+        modulename = None
+        module2filename = modules.module_fnames(True) # user_only set to True, is it always safe to do so?
+        for modname in module2filename.keys(): # a little inefficient to loop through each modulename.
+            if module2filename[modname] == fname:
+                modulename = modname
+        if modulename:
+            py_updater.update_one_module(modulename, fname=fname, assert_main=True)
 
 def fcreate(fname, is_folder):
     # Creates an empty file.
@@ -255,7 +268,7 @@ def fappend(fname, txt):
     if len(fglobals['checkpoints'])>0: # Requires a load+save.
         fsave(fname, contents(fname)+txt)
     else:
-        _fsave1(fname, txt, "a")
+        _fsave1(fname, txt, "ab" if type(txt) is bytes else "a")
 
 def save_checkpoint(name):
     # Save a checkpoint which can be reverted to. Overwrite if name already exists.
