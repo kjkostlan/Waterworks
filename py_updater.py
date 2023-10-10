@@ -115,6 +115,7 @@ def update_user_changed_modules(update_on_first_see=True, use_date=False):
     out = {}
     for m in mod_fnames.keys():
         fname = mod_fnames[m]
+        file_io.contents_on_first_call(fname) # Store the contents if no original version is stored.
         if needs_update(m, update_on_first_see, use_date):
             out[m] = update_one_module(m, fname, not update_on_first_see)
         else:
@@ -158,14 +159,15 @@ def py_walk_list(root='.', relative_paths=True):
                 else:
                     fname1 = os.path.realpath(os.path.join(root, fname)).replace('\\','/')
                 filelist.append(fname1)
-    return fname1
+    return filelist
 
 def walk_all_user_paths(relative_paths=False):
     # Walk all subfolders within each user path.
     cat_lists_here = []
-    phs = set(uglobals['user_paths']); phs.sort()
+    phs = list(set(uglobals['user_paths'])); phs.sort()
     for ph in phs:
-        cat_lists_here.extend(ph, relative_paths=relative_paths)
+        flist = py_walk_list(ph, relative_paths=relative_paths)
+        cat_lists_here.extend(flist)
     return cat_lists_here
 
 def py_walk_getcache(root='.', relative_paths=True):
