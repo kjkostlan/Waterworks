@@ -1,6 +1,6 @@
 # Tools to keep track of changes, update Python modules after save, and represent said changes as a dict.
 import os, sys, importlib, time
-from . import file_io, modules, fittings, var_watch, ppatch, global_vars
+from . import global_vars, paths, file_io, modules, fittings, var_watch, ppatch
 tprint = global_vars.tprint
 
 # Use of global variables:
@@ -8,9 +8,8 @@ tprint = global_vars.tprint
    # Difference from file_io.fglobals['original_txts']: 'filecontents_last_module_update' is updated whenever the module is.
 #  uglobals['filemodified_last_module_update'] has a similar lifecycle to 'filecontents_last_module_update' but stores the modified date.
 #  uglobals['varflush_queue'] appended in _module_update_core, used in ppatch.function_flush()
-#  uglobals['user_paths'] startis as [os.realpath('.')], added to with add_user_path, queried with get_user_paths, used by needs_update.
 #  sys.modules: Used in _fupdate, module_fnames, and update_python_interp
-uglobals = global_vars.global_get('updater_globals', {'filecontents_last_module_update':{}, 'filemodified_last_module_update':{}, 'varflush_queue':[], 'user_paths':[file_io.abs_path('.', True)]})
+uglobals = global_vars.global_get('updater_globals', {'filecontents_last_module_update':{}, 'filemodified_last_module_update':{}, 'varflush_queue':[]})
 printouts = True
 
 class ModuleUpdate:
@@ -39,18 +38,9 @@ class ModuleUpdate:
             if k in old_vars and old_vars[k] is not new_vars[k]:
                 self.old_new_pairs[k] = [old_vars[k], new_vars[k]]
 
-def add_user_path(ph):
-    # Put your project folders here.
-    ph = file_io.abs_path(ph, True)
-    if ph not in uglobals['user_paths']:
-        uglobals['user_paths'].append(ph)
-
-def get_user_paths():
-    return uglobals['user_paths'].copy()
-
 def needs_update(modulename, update_on_first_see=True, use_date=False):
-    fname = file_io.abs_path(modules.module_file(modulename), True)
-    if True not in ['!'+ph in '!'+fname for ph in uglobals['user_paths']]:
+    fname = paths.abs_path(modules.module_file(modulename), True)
+    if True not in ['!'+ph in '!'+fname for ph in paths.get_user_paths()]:
         return False # Active paths only.
     if fname not in uglobals['filecontents_last_module_update']: # first time seen.
         return update_on_first_see
@@ -61,7 +51,7 @@ def needs_update(modulename, update_on_first_see=True, use_date=False):
 
 def _module_update_core(fname, modulename):
     old_vars = ppatch.get_vars(modulename)
-    fname = file_io.abs_path(fname, True).replace('\\','/')
+    fname = paths.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
     try:
@@ -137,7 +127,7 @@ def module_fnames(): # Code from Termpylus.
 def update_python_interp(delta):
     # Keep the Python intrepretator up to date
     fnames = module_fnames()
-    inv_fnames = dict(zip([file_io.rel_path(v) for v in fnames.values()], fnames.keys()))
+    inv_fnames = dict(zip([paths.rel_path(v) for v in fnames.values()], fnames.keys()))
     for fname in delta.keys():
         if fname in inv_fnames:
             mname = inv_fnames[fname]
@@ -155,7 +145,7 @@ def py_walk_list(root='.', relative_paths=True):
         for fname in files:
             if fname.endswith('.py'):
                 if relative_paths:
-                    fname1 = file_io.rel_path(os.path.join(root, fname)).replace('\\','/')
+                    fname1 = paths.rel_path(os.path.join(root, fname)).replace('\\','/')
                 else:
                     fname1 = os.path.realpath(os.path.join(root, fname)).replace('\\','/')
                 filelist.append(fname1)
@@ -164,7 +154,7 @@ def py_walk_list(root='.', relative_paths=True):
 def walk_all_user_paths(relative_paths=False):
     # Walk all subfolders within each user path.
     cat_lists_here = []
-    phs = list(set(uglobals['user_paths'])); phs.sort()
+    phs = list(set(paths.get_user_paths())); phs.sort()
     for ph in phs:
         flist = py_walk_list(ph, relative_paths=relative_paths)
         cat_lists_here.extend(flist)

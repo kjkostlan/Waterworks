@@ -1,6 +1,6 @@
 # Disk I/O with change tracking and other features.
 import os, io, time, stat, pickle, pathlib, codecs, shutil
-from . import global_vars, fittings
+from . import global_vars, fittings, paths
 tprint = global_vars.tprint
 
 try:
@@ -11,103 +11,18 @@ except:
 # Global variables:
   # original_txts = the txt b4 modifications, set in contents_on_first_call and in save.
      # Different than the (kept up-to-date) py_updater.uglobals['filecontents'].
-  # original_cwd = set once to realpath('.')
-  # user_paths = set to [realpath('.')]
   # checkpoints = Optional feature. Name and save file snapshots.
   # txt_edits = Recorded by record_txt_update, queried by get_txt_edits. Simple list.
-
-ph = os.path.realpath('.').replace('\\','/')
-fglobals = global_vars.global_get('fileio_globals', {'original_txts':{},'original_cwd':ph, 'txt_edits':[],
-                                               'user_paths':[ph],'checkpoints':{},'created_files':set()})
-
-def linux_if_str(txt):
-    if type(txt) is str:
-        return txt.replace('\r\n','\n')
-    else:
-        return txt
-
-################################# Pathing ######################################
-
-def is_folder(fname):
-    fname = abs_path(fname)
-    return os.path.isdir(fname)
-
-def is_path_absolute(fname):
-    # Different rules for linux and windows.
-    fname = fname.replace('\\','/')
-    linux_abspath = fname[0]=='/'
-    win_abspath = len(fname)>2 and fname[1]==':' # C:/path/to/folder
-    if linux_abspath or win_abspath: # Two ways of getting absolute paths.
-        return True
-    return False
-
-def user_paths():
-    return fglobals['user_paths'].copy()
-
-def abs_path(fname, use_orig_working_directory=False):
-    # The absolute path, using either the current working directory OR the original working directory.
-    # The former option will change if os.ch_dir() is called.
-    if is_path_absolute(fname) or not use_orig_working_directory:
-        return os.path.realpath(fname).replace('\\','/')
-    else:
-        out = os.path.realpath(fglobals['original_cwd']+'/'+fname).replace('\\','/')
-        if not is_path_absolute(out):
-            raise Exception('Assert failed: Output path not absolute but in this code.')
-        return out
-
-def rel_path(fname, use_orig_working_directory=False):
-    # Relative path (NOT realpath, which is an absolute path!).
-    # Will default to abs_path if not inside the current working directory (less messy than double dots).
-    a = abs_path(fname, use_orig_working_directory)
-    ph = abs_path('.', use_orig_working_directory)
-    n = len(ph)
-
-    if ph in a:
-        return ('./'+a[n:]).replace('//','/')
-    else:
-        return a
-
-def files_in_folder1(fname): # Returns full absolute paths.
-    fname = abs_path(fname)
-    files = os.listdir(fname)
-    return [(fname+'/'+file).replace('//','/') for file in files]
-
-def recursive_files(fname, include_folders=False, filter_fn=None, max_folder_depth=65536):
-    fname = abs_path(fname)
-    if os.path.isdir(fname):
-        files1 = files_in_folder1(fname)
-        out = []
-        for f in files1:
-            if filter_fn is not None and not filter_fn(f):
-                continue
-            if os.path.isdir(f):
-                if include_folders:
-                    out.append(f)
-                if len(fname.split('/'))<max_folder_depth:
-                    out = out+recursive_files(f, include_folders, filter_fn, max_folder_depth)
-            else:
-                out.append(f)
-        return out
-    else:
-        if filter_fn(fname):
-            return [fname]
-        else:
-            return []
-
-def folder_file(fname):
-    # Splits into absolute folder and file.
-    fname = abs_path(fname)
-    pieces = fname.split('/')
-    return '/'.join(pieces[0:-1]), pieces[-1]
+fglobals = global_vars.global_get('fileio_globals', {'original_txts':{}, 'txt_edits':[], 'checkpoints':{},'created_files':set()})
 
 #################################Loading########################################
 
 def date_mod(fname):
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     return os.path.getmtime(fname)
 
 def is_hidden(fname):
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     return fname.split('/')[-1][0] == '.'
 
 def fload(fname, bin_mode=False): # Code adapted from Termpylus
@@ -122,13 +37,13 @@ def fload(fname, bin_mode=False): # Code adapted from Termpylus
                 x = file_obj.read()
             except UnicodeDecodeError:
                 raise Exception('No UTF-8 for:', fname)
-            out = linux_if_str(x)
+            out = paths.linux_if_str(x)
             return out
 
 def contents_on_first_call(fname):
     # The contents of the file on the first time said function was called.
     # OR just before the first time the file was saved.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if fname not in fglobals['original_txts']:
         txt = fload(fname)
         if txt is not None:
@@ -161,7 +76,7 @@ def python_source_load():
     for root, dirs, files in os.walk(".", topdown=False): # TODO: exclude .git and __pycache__ if the time cost becomes significant.
         for fname in files:
             if fname.endswith('.py'):
-                fnamer = rel_path(os.path.join(root, fname))
+                fnamer = paths.rel_path(os.path.join(root, fname))
                 fname2contents[fnamer] = fload(fnamer)
     return fname2contents
 
@@ -187,7 +102,7 @@ def disk_unpickle64(txt64):
     tprint('Saved to these files:', fname2obj.keys())
 
 def _update_checkpoints_before_saving(fname):
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if len(fglobals['checkpoints'])==0:
         return
     txt = contents(fname) # May be None, which means reverting = deleting this file.
@@ -216,7 +131,7 @@ def _unwindoze_attempt(f, filename_err_report, tries=12, retry_delay=1, throw_so
 def _fsave1(fname, txt, mode, tries=12, retry_delay=1.0):
     # Does not need any enclosing folders to already exist.
     #https://stackoverflow.com/questions/12517451/automatically-creating-directories-with-file-output
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     def f():
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         with io.open(fname, mode=mode, encoding="utf-8") as file_obj:
@@ -235,7 +150,7 @@ def get_txt_edits():
 
 def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
     # Automatically stores the original txts and updates modules if fname cooresponds to a module.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     bin_mode = type(txt) is bytes
     old_txt = fload(fname, bin_mode=bin_mode)
     _update_checkpoints_before_saving(fname)
@@ -262,7 +177,7 @@ def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
 
 def fcreate(fname, is_folder):
     # Creates an empty file.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if not os.path.exists(fname):
         fglobals['created_files'].add(fname)
     if is_folder:
@@ -280,7 +195,7 @@ def make_folder(foldername):
     os.makedirs(foldername, exist_ok=True)
 
 def fappend(fname, txt):
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if len(fglobals['checkpoints'])>0: # Requires a load+save.
         fsave(fname, contents(fname)+txt)
     else:
@@ -295,19 +210,19 @@ def save_checkpoint(name):
 def fdelete(fname):
     # Basic delete which will fail for windows file-in-use errors as well as readonly files in folders.
     if os.path.exists(fname):
-        if is_folder(fname):
+        if file_io.is_folder(fname):
             shutil.rmtree(fname)
         else:
             os.unlink(fname)
 
 def power_delete(fname, tries=12, retry_delay=1.0):
     # Can be reverted IF there is a checkpoint saved.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if not os.path.exists(fname):
         return
     _update_checkpoints_before_saving(fname)
 
-    if is_folder(fname):
+    if file_io.is_folder(fname):
         for root, dirs, files in os.walk(fname, topdown=False):
             for _fname in files:
                 _fname1 = root+'/'+_fname
@@ -319,7 +234,7 @@ def power_delete(fname, tries=12, retry_delay=1.0):
         _unwindoze_attempt(lambda: os.remove(fname), fname, tries, retry_delay)
 
 def clear_pycache(fname):
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     # This can intefere with updating.
     cachefolder = os.path.dirname(fname)+'/__pycache__'
     leaf = os.path.basename(fname).replace('.py','').replace('\\','/')
@@ -377,11 +292,11 @@ def revert_checkpoint(check_name):
 
 def _fileallow(fname):
     keeplist = debug_restrict_disk_modifications_to_these
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if keeplist is not None:
         if type(keeplist) is str:
             keeplist = [keeplist]
-        keeplist = [abs_path(kl) for kl in keeplist]
+        keeplist = [paths.abs_path(kl) for kl in keeplist]
         allow = False
         for k in keeplist:
             if fname.startswith(k):
@@ -392,7 +307,7 @@ def _fileallow(fname):
 
 def guarded_delete(fname, allow_folders=False, powerful=False):
     # Deleting is dangerous.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if not _fileallow(fname):
         raise Exception('debug_restrict_disk_modifications_to_these is set to: '+str(debug_restrict_disk_modifications_to_these).replace('\\\\','/')+' and disallows deleting this filename: '+fname)
     if os.path.isdir(fname) and not allow_folders:
@@ -402,7 +317,7 @@ def guarded_delete(fname, allow_folders=False, powerful=False):
 def guarded_create(fname, is_folder):
     # Creating files isn't all that dangerous, but still can be annoying.
     # Skips files that already exist.
-    fname = abs_path(fname)
+    fname = paths.abs_path(fname)
     if not _fileallow(fname):
         raise Exception('debug_restrict_disk_modifications_to_these is set to: '+str(debug_restrict_disk_modifications_to_these).replace('\\\\','/')+' and disallows creating this filename: '+fname)
     fcreate(fname, is_folder)
