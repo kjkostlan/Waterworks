@@ -20,10 +20,10 @@ class Null: # Difference between a symbol that evals to None and a block of code
 
 ################## String processing fns (Idempotent) ##########################
 
-def _basic_txt(x):
+def basic_txt(x):
     # Basic idempotent txt.
     if type(x) is list or type(x) is tuple:
-        msg = '\n'.join([_basic_txt(xi) for xi in x])
+        msg = '\n'.join([basic_txt(xi) for xi in x])
     if type(x) is bytes:
         x = x.decode('utf-8', errors='ignore')
     x = str(x)
@@ -31,7 +31,7 @@ def _basic_txt(x):
     return x
 
 def remove_greebles(msg):
-    msg = _basic_txt(msg)
+    msg = basic_txt(msg)
     lines = msg.split('\n')
     lines1 = []
     for l in lines:
@@ -45,11 +45,11 @@ def add_greebles(txt):
     # Adds a line for the _head, the _tail, and adds _lineheads to each line in the middle.
     # These are used to.
     txt = remove_greebles(txt)
-    lines = _basic_txt(txt).split('\n')
+    lines = basic_txt(txt).split('\n')
     return '\n'.join([_head]+[_linehead+l for l in lines]+[_tail])
 
 def pprint(msg):
-    msg = _basic_txt(str(msg))
+    msg = basic_txt(str(msg))
     msg = remove_greebles(msg)
     lines = ['   '+l for l in msg.split('\n')]
 
@@ -123,7 +123,7 @@ def from_exception(e):
 def from_greebled_stderr(stderr_blit, compress_multible=False):
     # None if it can't find anything.
     # compress_multible is useful if the same error was raised more than once.
-    stderr_blit = _basic_txt(stderr_blit)
+    stderr_blit = basic_txt(stderr_blit)
 
     ky = '(?s)'+re.escape(_head)+'.+?'+re.escape(_tail)
     blocks0 = re.findall(ky, stderr_blit)
@@ -144,7 +144,7 @@ def from_vanilla_stderr(stderr_blit, compress_multible=False):
     if type(stderr_blit) is bytes:
         stderr_blit = stderr_blit.decode('utf-8')
     err_ky = 'Traceback (most recent call last)'
-    pieces = ('tmp_header_I_want_to_be_excised\n'+_basic_txt(stderr_blit)).split(err_ky)
+    pieces = ('tmp_header_I_want_to_be_excised\n'+basic_txt(stderr_blit)).split(err_ky)
     if len(pieces)==1:
         return None
     for i in range(1, len(pieces)):
@@ -200,11 +200,11 @@ class VerboseError(Exception): # Verbose = Stack trace is in the message.
     pass
 
 def raise_from_message(stack_message):
-    raise VerboseError(_basic_txt(stack_message))
+    raise VerboseError(basic_txt(stack_message))
 
 ############################### Code evaluation ################################
 
-def _issym(x): # Is x a (single) symbol?
+def issym(x): # Is x a (single) symbol?
     x = x.strip()
     if len(x)==0 or x=='pass':
         return False
@@ -250,8 +250,8 @@ def exec_better_report(code_txt, *args, **kwargs):
     lines = code_txt.strip().split('\n')
     debug_show_exec_block = False
     if debug_show_exec_block:
-        print('CODE:', repr(code_txt), 'Line count:', len(lines), 'Ending line:', lines[-1], 'Ends with symbol?', _issym(lines[-1]))
-    if _issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
+        print('CODE:', repr(code_txt), 'Line count:', len(lines), 'Ending line:', lines[-1], 'Ends with symbol?', issym(lines[-1]))
+    if issym(lines[-1]): # Will only run if the var exists, otherwise exec will have raised 'is not defined'.
         out = eval(lines[-1], *args, **kwargs)
         if out is None:
             return Null()
