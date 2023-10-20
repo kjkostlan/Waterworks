@@ -50,7 +50,7 @@ def needs_update(modulename, update_on_first_see=True, use_date=False):
         return uglobals['filecontents_last_module_update'][fname] != file_io.fload(fname)
 
 def _module_update_core(fname, modulename):
-    old_vars = ppatch.get_vars(modulename)
+    old_vars = ppatch.module_vars(modulename)
     fname = paths.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
@@ -73,7 +73,7 @@ def _module_update_core(fname, modulename):
     uglobals['filecontents_last_module_update'][fname] = new_txt
     uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
 
-    new_vars = ppatch.get_vars(modulename)
+    new_vars = ppatch.module_vars(modulename)
 
     out = ModuleUpdate(modulename, old_txt, new_txt, old_vars, new_vars)
     uglobals['varflush_queue'].append(out)

@@ -1,5 +1,5 @@
 # Patch system: Allows making and removing patches to variables.
-# (Of course this requires functions that get variables from modules)
+#   (Also has functions that get variables from modules)
 import sys, re
 from . import global_vars
 
@@ -74,7 +74,51 @@ def temp_exec(modulename, class_name, txt):
         if v0 is not v1:
             var_store[prepend+k] = v0 # Store the old var, since the new one has changed. Will store None for created vars.
 
-############################### Multible updates ###############################
+############################### Multible var updates ###############################
+
+def _module_vars_core(out, x, subpath, nest, usedids):
+    d = x.__dict__ # Found in both modules and classes.
+    kys = d.keys(); kys.sort()
+    for k in kys:
+        if str(type(d[k])) == "<class 'module'>":
+            continue # Exclude imports, etc.
+        if id(d[k]) in usedids:
+            continue # Avoids infinite loops with circular class references.
+        if k.startswith('__') and k.endswith('__'): # Oddball python stuff we do not need.
+            continue
+        out[subpath+k] = d[k]
+        usedids.add(id(d[k]))
+        if nest and type(d[k]) is type: # Classes.
+            _module_vars_core(out, d[k], subpath+k+'.', nest, usedids)
+
+def module_vars(modulename, nest_inside_classes=True):
+    # Map from symbol to name.
+    out = {}
+    usedids = set()
+    y = sys.modules[modulename]
+    _module_vars_core(out, y, '', nest_inside_classes, usedids)
+    return out
+
+def reset_module_vars(modulename):
+    for var_name in list(_gld['original_varss'].get(modulename, {}).keys()):
+        reset_var(modulename, var_name)
+
+def get_all_vars(nest_inside_classes=True): # For each module.
+    return dict(zip(sys.modules.keys(), [module_vars(m, nest_inside_classes) for m in sys.modules.values()]))
+
+def reset_all_vars():
+    for modulename in list(_gld['original_varss'].keys()):
+        reset_module_vars(modulename)
+
+def get_vars_recursive(stub, nest_inside_classes=True):
+    # "foo.bar" and "foo.baz" modules both start with "foo".
+    modules = filter(lambda m: stub.startswith(m), sys.modules.keys()); modules.sort()
+    out = []
+    for m in modules:
+        out.extend(module_vars(m, nest_inside_classes))
+    return out
+
+######## Object/instance updates, very much pre-alpha ##########################
 
 def default_update_object(x, kvs):
     # Updates x by setting all keys in kvs to thier values.
@@ -103,38 +147,3 @@ def function_flush():
     # Will NOT work on class methods passed as a fn param, since these attributes are generated dynamicalls.
     uglobals['varflush_queue']
     TODO
-
-############################### Multible updates ###############################
-
-def _get_vars_core(out, x, subpath, nest, usedids):
-    d = x.__dict__ # Found in both modules and classes.
-    for k in d.keys():
-        if str(type(d[k])) == "<class 'module'>":
-            continue # Exclude imports, etc.
-        if id(d[k]) in usedids:
-            continue # Avoids infinite loops with circular class references.
-        if k.startswith('__') and k.endswith('__'): # Oddball python stuff we do not need.
-            continue
-        out[subpath+k] = d[k]
-        usedids.add(id(d[k]))
-        if nest and type(d[k]) is type: # Classes.
-            _get_vars_core(out, d[k], subpath+k+'.', nest, usedids)
-
-def get_vars(modulename, nest_inside_classes=True):
-    # Map from symbol to name.
-    out = {}
-    usedids = set()
-    y = sys.modules[modulename]
-    _get_vars_core(out, y, '', nest_inside_classes, usedids)
-    return out
-
-def get_all_vars(nest_inside_classes=True): # For each module.
-    return dict(zip(sys.modules.keys(), [get_vars(m, nest_inside_classes) for m in sys.modules.values()]))
-
-def reset_module_vars(modulename):
-    for var_name in list(_gld['original_varss'].get(modulename, {}).keys()):
-        reset_var(modulename, var_name)
-
-def reset_all_vars():
-    for modulename in list(_gld['original_varss'].keys()):
-        reset_module_vars(modulename)
