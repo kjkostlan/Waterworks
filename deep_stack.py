@@ -259,12 +259,12 @@ def exec_better_report(code_txt, *args, **kwargs):
     else:
         return None
 
-def exec_here(modulename, code_txt, delete_new_vars=False):
-    # Runs code_txt in modulename. Returns any vars that are created (added to the __dict__)
+def exec_here(module_name, code_txt, delete_new_vars=False):
+    # Runs code_txt in module_name. Returns any vars that are created (added to the __dict__)
     # (which means that it returns an empty dict for purely side-effect-free code).
     # Option to delete new vars to "clean up"
     #https://stackoverflow.com/questions/2220699/whats-the-difference-between-eval-exec-and-compile
-    m = modulename if type(modulename) is type(sys) else sys.modules[modulename]
+    m = module_name if type(module_name) is type(sys) else sys.modules[module_name]
 
     vars0 = set(m.__dict__.keys())
     exec_better_report(code_txt, vars(m)) # Store events.

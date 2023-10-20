@@ -167,13 +167,13 @@ def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
     if old_txt != txt and update_module: # Update the module if the text changed and the file cooresponds to a module.
         from . import py_updater # This circular dependency would be akward to break.
         from . import modules # This one somewhat less so.
-        modulename = None
+        module_name = None
         module2filename = modules.module_fnames(True) # user_only set to True, is it always safe to do so?
-        for modname in module2filename.keys(): # a little inefficient to loop through each modulename.
+        for modname in module2filename.keys(): # a little inefficient to loop through each module_name.
             if module2filename[modname] == fname:
-                modulename = modname
-        if modulename:
-            py_updater.update_one_module(modulename, fname=fname, assert_main=True)
+                module_name = modname
+        if module_name:
+            py_updater.update_one_module(module_name, fname=fname, assert_main=True)
 
 def fcreate(fname, is_folder):
     # Creates an empty file.

@@ -28,8 +28,8 @@ class ModuleUpdate:
     '''
     # (But this is dangerous, so lets not rely on it unless we really need to).
     # Stores the module updating.
-    def __init__(self, modulename, old_txt, new_txt, old_vars, new_vars):
-        self.modulename = modulename
+    def __init__(self, module_name, old_txt, new_txt, old_vars, new_vars):
+        self.module_name = module_name
         self.old_txt = old_txt
         self.new_txt = new_txt
 
@@ -38,8 +38,8 @@ class ModuleUpdate:
             if k in old_vars and old_vars[k] is not new_vars[k]:
                 self.old_new_pairs[k] = [old_vars[k], new_vars[k]]
 
-def needs_update(modulename, update_on_first_see=True, use_date=False):
-    fname = paths.abs_path(modules.module_file(modulename), True)
+def needs_update(module_name, update_on_first_see=True, use_date=False):
+    fname = paths.abs_path(modules.module_file(module_name), True)
     if True not in ['!'+ph in '!'+fname for ph in paths.get_user_paths()]:
         return False # Active paths only.
     if fname not in uglobals['filecontents_last_module_update']: # first time seen.
@@ -49,13 +49,13 @@ def needs_update(modulename, update_on_first_see=True, use_date=False):
     else:
         return uglobals['filecontents_last_module_update'][fname] != file_io.fload(fname)
 
-def _module_update_core(fname, modulename):
-    old_vars = ppatch.module_vars(modulename)
+def _module_update_core(fname, module_name):
+    old_vars = ppatch.module_vars(module_name)
     fname = paths.abs_path(fname, True).replace('\\','/')
 
     file_io.clear_pycache(fname)
     try:
-        importlib.reload(sys.modules[modulename])
+        importlib.reload(sys.modules[module_name])
     except Exception as e:
         if "spec not found for the module '__main__'" in str(e):
             print('Warning: Cannot reload the __main__ module.')
@@ -73,26 +73,26 @@ def _module_update_core(fname, modulename):
     uglobals['filecontents_last_module_update'][fname] = new_txt
     uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
 
-    new_vars = ppatch.module_vars(modulename)
+    new_vars = ppatch.module_vars(module_name)
 
-    out = ModuleUpdate(modulename, old_txt, new_txt, old_vars, new_vars)
+    out = ModuleUpdate(module_name, old_txt, new_txt, old_vars, new_vars)
     uglobals['varflush_queue'].append(out)
     return out
 
-def update_one_module(modulename, fname=None, assert_main=True):
+def update_one_module(module_name, fname=None, assert_main=True):
     # The module must already be in the file.
-    if modulename == '__main__' and assert_main: # odd case, generates spec not found error.
+    if module_name == '__main__' and assert_main: # odd case, generates spec not found error.
         raise Exception('Cannot update the main module for some reason. Need to restart when the Termpylus_main.py file changes.')
-    elif modulename == '__main__':
+    elif module_name == '__main__':
         return
     if fname is None:
-        fname = modules.module_file(modulename)
+        fname = modules.module_file(module_name)
     if fname is None:
         raise Exception('No fname supplied and cannot find the file.')
-    tprint('Updating MODULE:', modulename, fname)
+    tprint('Updating MODULE:', module_name, fname)
 
-    out = _module_update_core(fname, modulename)
-    var_watch.just_after_module_update(modulename)
+    out = _module_update_core(fname, module_name)
+    var_watch.just_after_module_update(module_name)
     return out
 
 def update_user_changed_modules(update_on_first_see=True, use_date=False):

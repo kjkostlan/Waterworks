@@ -27,10 +27,9 @@ def disk_log(*x):
     with open(fname, 'a' if os.path.exists(fname) else 'w') as file:
         file.write(' '.join([str(xi) for xi in x])+'\n')
 
-def logged_fn(modulename, var_name, f_obj):
+def logged_fn(varname_full, f_obj):
     # Makes a logged version of the function, which behaves the same but adds to logs.
-    name = modulename+'.'+var_name
-    def f(*args, _SYM_name=name, **kwargs):
+    def f(*args, _SYM_name=varname_full, **kwargs):
         #print('Logged fn call:', _SYM_name, len(args))
         kwargs1 = kwargs.copy()
         for i in range(len(args)):
@@ -47,38 +46,37 @@ def logged_fn(modulename, var_name, f_obj):
 
 ########################### Adding and removing watchers #######################
 
-def rm_fn_watcher(modulename, var_name):
-    ppatch.remove_patch(modulename, var_name)
+def rm_fn_watcher(varname_full):
+    ppatch.remove_patch(varname_full)
 
-def add_fn_watcher(modulename, var_name, f_code=None):
+def add_fn_watcher(varname_full, f_code=None):
     # Changes the function in var_name to record it's inputs and outputs.
-    # Replaces any old watchers.
-    m = sys.modules[modulename]
-    k = modulename+'.'+var_name
-    ppatch.reset_var(modulename, var_name)
-    f_obj = ppatch.get_var(modulename, var_name)
+    # Idempotent: removes any old watchers before adding them.
+    m = sys.modules[ppatch.module_name_of(varname_full)]
+    ppatch.reset_var(varname_full)
+    f_obj = ppatch.get_var(varname_full)
     if f_code is None:
-        f_obj = ppatch.get_var(modulename, var_name)
+        f_obj = ppatch.get_var(varname_full)
     else:
         f_obj = eval(f_code, locals=None, globals=m.__dict__) # Since globals is top-level, not sure how it will work inside of a class.
-    f = logged_fn(modulename, var_name, f_obj)
+    f = logged_fn(varname_full, f_obj)
 
-    ppatch.set_var(modulename, var_name, f)
-    vglobals['module_watcher_codes'][modulename+'.'+var_name] = f_code
+    ppatch.set_var(varname_full, f)
+    vglobals['module_watcher_codes'][varname_full] = f_code
     return f
 
-def remove_module_watchers(modulename):
-    var_dict = ppatch.module_vars(modulename, nest_inside_classes=True)
+def remove_module_watchers(module_name):
+    var_dict = ppatch.module_vars(module_name, nest_inside_classes=True)
     for vn in var_dict.keys():
-        ppatch.reset_var(modulename, vn)
+        ppatch.reset_var(module_name, vn)
 
-def add_module_watchers(modulename):
+def add_module_watchers(module_name):
     #Watches all functions in a module, including class methods (although class nstances may need to be re-instanced).
-    remove_module_watchers(modulename) # Reset the module.
-    var_dict = ppatch.module_vars(modulename, nest_inside_classes=True)
+    remove_module_watchers(module_name) # Reset the module.
+    var_dict = ppatch.module_vars(module_name, nest_inside_classes=True)
     for vn in var_dict.keys():
         if callable(var_dict[vn]):
-            add_fn_watcher(modulename, vn)
+            add_fn_watcher(module_name, vn)
 
 def add_all_watchers_global():
     # Adds all watchers to every module (except this one!)
@@ -92,16 +90,16 @@ def remove_all_watchers():
         if k != __name__:
             remove_module_watchers(k)
 
-def with_watcher(modulename, var_name, args, return_log=False):
+def with_watcher(varname_full, args, return_log=False):
     # Add watcher, run code, remove watcher.
     # Option to return_log.
     # TODO: will get more useful if we.
-    logs0 = vglobals['logss'].get(modulename+'.'+varname,[])
-    add_fn_watcher(modulename, var_name)
-    f_obj = ppatch.get_var(modulename, var_name)
+    logs0 = vglobals['logss'].get(varname_full,[])
+    add_fn_watcher(varname_full)
+    f_obj = ppatch.get_var(varname_full)
     out = f_obj(*args)
-    remove_fn_watcher(modulename, var_name)
-    logs1 = vglobals['logss'][modulename+'.'+varname]
+    remove_fn_watcher(varname_full)
+    logs1 = vglobals['logss'][varname_full]
     return logs1[len(logs0):] if return_log else out
 
 ########################### Watchers create logs ###############################
@@ -109,19 +107,17 @@ def with_watcher(modulename, var_name, args, return_log=False):
 def get_all_logs():
     return vglobals['logss'].copy()
 
-def get_logs(modulename, var_name):
-    k = modulename+'.'+var_name
-    return vglobals['logss'].get(k,[]).copy()
+def get_logs(varname_full):
+    return vglobals['logss'].get(varname_full,[]).copy()
 
 def remove_all_logs():
     vglobals['logss'] = {}
 
 ####### Keep active watchers active when reloading a module ####################
 
-def just_after_module_update(modulename):
+def just_after_module_update(module_name):
     # Need to re-add them:
     watchers = vglobals['module_watcher_codes']
-    for varq_name in watchers.keys():
-        if varq_name.startswith(modulename+'.'):
-            var_name = varq_name[len(modulename)+1:]
-            add_fn_watcher(modulename, var_name, watchers[varq_name])
+    for varname_full in watchers.keys():
+        if varname_full.startswith(module_name+'.'):
+            add_fn_watcher(varname_full, watchers[varq_name])

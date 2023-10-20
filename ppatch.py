@@ -9,54 +9,70 @@ from . import global_vars
   #  Note: 'vars' are usually functions.
 _gld = global_vars.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
 
-def _v0(modulename, var_name):
-    return _gld['original_varss'].get(modulename,{}).get(var_name,None)
+def module_name_of(varname_full):
+    pieces = varname_full.split('.')
+    for i in range(len(pieces), 0, -1): # Longest first.
+        k = '.'.join(pieces[0:i])
+        if k in sys.modules:
+            return k
+    return None
 
-def get_var(modulename, var_name):
-    # Gets the var.
-    pieces = var_name.split('.')
-    y = sys.modules[modulename]
+def get_var(varname_full):
+    # Gets the var object.
+    module_name = module_name_of(varname_full)
+    varname_leaf = varname_full[len(module_name)+1:]
+    pieces = varname_leaf.split('.') # More than one piece if classes inside modules are used.
+    y = sys.modules[module_name]
     for p in pieces:
         y = getattr(y,p)
     return y
 
-def is_modified(modulename, var_name):
-    # Any modifications.
-    v0 = _v0(modulename, var_name)
-    return v0 is not None and v0 is not get_var(modulename, var_name)
+def _v0(varname_full):
+    module_name = module_name_of(varname_full)
+    varname_leaf = varname_full[len(module_name)+1:]
+    return _gld['original_varss'].get(module_name,{}).get(varname_leaf,None)
 
-def original_var(modulename, var_name):
-    v0 = _v0(modulename, var_name)
+def is_modified(varname_full):
+    # Any modifications.
+    v0 = _v0(varname_full)
+    return v0 is not None and v0 is not get_var(varname_full)
+
+def original_var(varname_full):
+    v0 = _v0(varname_full)
     if v0 is None:
-        return get_var(modulename, var_name)
+        return get_var(varname_full)
     return v0
 
-def set_var(modulename, var_name, x):
+def set_var(varname_full, x):
     pieces = var_name.split('.')
-    y = sys.modules[modulename]
-    if not is_modified(modulename, var_name):
-        _gld['original_varss'][modulename] = _gld['original_varss'].get(modulename,{})
-        _gld['original_varss'][modulename][var_name] = get_var(modulename, var_name)
+    module_name = module_name_of(varname_full)
+    varname_leaf = varname_full[len(module_name)+1:]
+    y = sys.modules[module_name]
+    if not is_modified(varname_full):
+        _gld['original_varss'][module_name] = _gld['original_varss'].get(module_name,{})
+        _gld['original_varss'][module_name][varname_leaf] = get_var(module_name, varname_leaf)
     for p in pieces[0:-1]:
         y = getattr(y,p)
     setattr(y, pieces[-1], x)
 
-def reset_var(modulename, var_name):
-    if is_modified(modulename, var_name):
-        set_var(modulename, var_name, _gld['original_varss'][modulename][var_name])
+def reset_var(varname_full):
+    module_name = module_name_of(varname_full)
+    varname_leaf = varname_full[len(module_name)+1:]
+    if is_modified(varname_full):
+        set_var(varname_full, _gld['original_varss'][module_name][varname_leaf])
 
-def temp_exec(modulename, class_name, txt):
+def temp_exec(module_name, class_name, the_code):
     # Temporary exec, inside a class or inside a module.
-    # Can be undone with "reset_module_vars(modulename)"
-    _gld['original_varss'][modulename] = _gld['original_varss'].get(modulename, {})
-    var_store = _gld['original_varss'][modulename]
+    # Can be undone with "reset_module_vars(module_name)"
+    _gld['original_varss'][module_name] = _gld['original_varss'].get(module_name, {})
+    var_store = _gld['original_varss'][module_name]
 
     if not class_name or class_name == '':
         pieces = []
     else:
         pieces = class_name.split('.')
 
-    y = sys.modules[modulename]
+    y = sys.modules[module_name]
     globals = y.__dict__
     locals = {}
     for p in pieces:
@@ -65,7 +81,7 @@ def temp_exec(modulename, class_name, txt):
 
     prepend = '' if len(pieces) == 0 else '.'.join(pieces)+'.'
     vars0 = dict(y.__dict__)
-    exec(txt, globals, locals)
+    exec(the_code, globals, locals)
     vars1 = dict(y.__dict__)
     for k in set(vars0.keys()).union(set(vars1.keys())):
         if k.endswith('__') or prepend+k in var_store:
@@ -91,24 +107,24 @@ def _module_vars_core(out, x, subpath, nest, usedids):
         if nest and type(d[k]) is type: # Classes.
             _module_vars_core(out, d[k], subpath+k+'.', nest, usedids)
 
-def module_vars(modulename, nest_inside_classes=True):
+def module_vars(module_name, nest_inside_classes=True):
     # Map from symbol to name.
     out = {}
     usedids = set()
-    y = sys.modules[modulename]
+    y = sys.modules[module_name]
     _module_vars_core(out, y, '', nest_inside_classes, usedids)
     return out
 
-def reset_module_vars(modulename):
-    for var_name in list(_gld['original_varss'].get(modulename, {}).keys()):
-        reset_var(modulename, var_name)
+def reset_module_vars(module_name):
+    for var_name in list(_gld['original_varss'].get(module_name, {}).keys()):
+        reset_var(module_name, var_name)
 
 def get_all_vars(nest_inside_classes=True): # For each module.
     return dict(zip(sys.modules.keys(), [module_vars(m, nest_inside_classes) for m in sys.modules.values()]))
 
 def reset_all_vars():
-    for modulename in list(_gld['original_varss'].keys()):
-        reset_module_vars(modulename)
+    for module_name in list(_gld['original_varss'].keys()):
+        reset_module_vars(module_name)
 
 def get_vars_recursive(stub, nest_inside_classes=True):
     # "foo.bar" and "foo.baz" modules both start with "foo".

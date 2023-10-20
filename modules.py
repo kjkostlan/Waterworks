@@ -5,9 +5,9 @@ from . import global_vars, paths
 # Global variables used:
 #   sys.modules is used by many different functions.
 
-def is_user(modulename):
+def is_user(module_name):
     # Only change user files.
-    fname = module_file(sys.modules[modulename])
+    fname = module_file(sys.modules[module_name])
     if fname is not None:
         phs = paths.get_user_paths()
         for ph in phs:
@@ -34,28 +34,28 @@ def module_fnames(user_only=False):
             out[k] = fname.replace('\\','/')
     return out
 
-def module_from_file(modulename, pyfname, exec_module=True):
-    # Creates a module from a file. Generally the modulename will be foo.bar if the
+def module_from_file(module_name, pyfname, exec_module=True):
+    # Creates a module from a file. Generally the module_name will be foo.bar if the
     # file is path/to/external/project/foo/bar.py
-    if modulename in sys.modules: # already exists, just update it.
-        pyfname0 = module_file(modulename)
+    if module_name in sys.modules: # already exists, just update it.
+        pyfname0 = module_file(module_name)
         if pyfname0 == pyfname:
-            #update_one_module(modulename, False) # Shouldn't be necessary as long as update_user_changed_modules is bieng called.
-            return sys.modules[modulename]
+            #update_one_module(module_name, False) # Shouldn't be necessary as long as update_user_changed_modules is bieng called.
+            return sys.modules[module_name]
         elif pyfname0 is not None:
             pyfname = paths.abs_path(pyfname, True).replace('\\','/')
             if pyfname != pyfname0:
-                raise Exception('Shadowing modulename: '+modulename+' Old py.file: '+pyfname0+ 'New py.file '+pyfname)
+                raise Exception('Shadowing module name: '+module_name+' Old py.file: '+pyfname0+ 'New py.file '+pyfname)
 
     folder_name = os.path.dirname(paths.abs_path(pyfname, True))
     paths.add_user_path(folder_name)
 
     #https://stackoverflow.com/questions/67631/how-can-i-import-a-module-dynamically-given-the-full-path
-    spec = importlib.util.spec_from_file_location(modulename, pyfname)
+    spec = importlib.util.spec_from_file_location(module_name, pyfname)
     if spec is None:
         raise Exception('None spec')
     foo = importlib.util.module_from_spec(spec)
-    sys.modules[modulename] = foo
+    sys.modules[module_name] = foo
     if exec_module:
         spec.loader.exec_module(foo)
     return foo
