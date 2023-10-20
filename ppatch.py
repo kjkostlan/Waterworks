@@ -94,7 +94,7 @@ def temp_exec(module_name, class_name, the_code):
 
 def _module_vars_core(out, x, subpath, nest, usedids):
     d = x.__dict__ # Found in both modules and classes.
-    kys = d.keys(); kys.sort()
+    kys = list(d.keys()); kys.sort()
     for k in kys:
         if str(type(d[k])) == "<class 'module'>":
             continue # Exclude imports, etc.
@@ -128,7 +128,7 @@ def reset_all_vars():
 
 def get_vars_recursive(stub, nest_inside_classes=True):
     # "foo.bar" and "foo.baz" modules both start with "foo".
-    modules = filter(lambda m: stub.startswith(m), sys.modules.keys()); modules.sort()
+    modules = list(filter(lambda m: stub.startswith(m), sys.modules.keys())); modules.sort()
     out = []
     for m in modules:
         out.extend(module_vars(m, nest_inside_classes))
