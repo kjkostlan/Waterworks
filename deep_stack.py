@@ -155,10 +155,10 @@ def from_vanilla_stderr(stderr_blit, compress_multible=False):
         lines1 = []
         for l in lines:
             gap = gap+1; max_gap = max(max_gap, gap)
-            if likely_traceline(l):
+            if likely_traceline(l): #The line that is "File "foo/bar.py"" etc.
                 gap = 0
                 lines1.append(l)
-            elif gap==1 and l.startswith('  '): # Line just after the.
+            elif gap==1 and (l.startswith('  ') or 'error:' in l.lower() or 'exception:' in l.lower()): # Line just after the traceline.
                 lines1.append(l)
             elif gap == 2 and max_gap == 2: # The last line.
                 lines1.append(l)
@@ -245,8 +245,8 @@ def exec_better_report(code_txt, *args, **kwargs):
         non_none_line_nums = list(filter(lambda x: x is not None, line_nums))
         # The stacktrace includes the error message:
         broken_code_msg = (f'exec() error running {len(code_lines)} lines of code, bad line: "'+code_lines[non_none_line_nums[-1]-1]+'"') if len(non_none_line_nums)>0 else 'exec() error running this code: "'+code_txt+'"'
-
-        raise raise_from_message(broken_code_msg+': '+repr(e))
+        total_msg = broken_code_msg+': '+repr(e)
+        raise raise_from_message(total_msg)
     lines = code_txt.strip().split('\n')
     debug_show_exec_block = False
     if debug_show_exec_block:
