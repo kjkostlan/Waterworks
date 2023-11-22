@@ -7,6 +7,8 @@ try:
     debug_restrict_disk_modifications_to_these
 except:
     debug_restrict_disk_modifications_to_these = None
+    save_f = None # f(fname, txt) => txt. Allows for tweaking the behavior of save and load.
+    load_f = None # f(fname, txt) => txt.
 
 # Global variables:
   # original_txts = the txt b4 modifications, set in contents_on_first_call and in save.
@@ -30,14 +32,20 @@ def fload(fname, bin_mode=False): # Code adapted from Termpylus
         return None
     if bin_mode:
         with io.open(fname, mode="rb") as file_obj:
-            return file_obj.read()
+            out = file_obj.read()
+            if load_f:
+                out = load_f(fname, out)
+            return out
     else:
         with io.open(fname, mode="r", encoding="utf-8") as file_obj:
             try:
                 x = file_obj.read()
             except UnicodeDecodeError:
                 raise Exception('No UTF-8 for:', fname)
-            out = paths.linux_if_str(x)
+            if load_f:
+                out = load_f(fname, x)
+            else:
+                out = paths.linux_if_str(x) # Default behavior for loading txt files is \r\n => \n
             return out
 
 def contents_on_first_call(fname):
@@ -151,6 +159,8 @@ def get_txt_edits():
 def fsave(fname, txt, tries=12, retry_delay=1.0, update_module=True):
     # Automatically stores the original txts and updates modules if fname cooresponds to a module.
     fname = paths.abs_path(fname)
+    if save_f:
+        txt = save_f(fname, txt)
     bin_mode = type(txt) is bytes
     old_txt = fload(fname, bin_mode=bin_mode)
     _update_checkpoints_before_saving(fname)
