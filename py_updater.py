@@ -10,7 +10,11 @@ tprint = global_vars.tprint
 #  uglobals['varflush_queue'] appended in _module_update_core, used in ppatch.function_flush()
 #  sys.modules: Used in _fupdate, module_fnames, and update_python_interp
 uglobals = global_vars.global_get('updater_globals', {'filecontents_last_module_update':{}, 'filemodified_last_module_update':{}, 'varflush_queue':[]})
-printouts = True
+try:
+    printouts
+except:
+    printouts = True
+    stringswap_fn = None # f(modulename, txt) => txt => saved to disk. Allows tweaking the source code whenver a file is saved.
 
 class ModuleUpdate:
     # How to look up var from id:
@@ -72,6 +76,14 @@ def _module_update_core(fname, module_name):
         old_txt = None
     uglobals['filecontents_last_module_update'][fname] = new_txt
     uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
+
+    if stringswap_fn:
+        new_txt1 = stringswap_fn(module_name, new_txt)
+        if type(new_txt1) is not str:
+            raise Exception('stringswap_fn must return a string object')
+        if new_txt1 != new_txt:
+            file_io.fsave(fname, new_txt1)
+            new_txt = new_txt1
 
     new_vars = ppatch.module_vars(module_name)
 
