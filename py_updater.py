@@ -14,7 +14,8 @@ try:
     printouts
 except:
     printouts = True
-    stringswap_fn = None # f(modulename, txt) => txt => saved to disk. Allows tweaking the source code whenver a file is saved.
+    stringswap_fn = None # Optional f(modulename, txt) => txt => saved to disk. Allows tweaking the source code whenver a file is saved.
+    module_update_callback = None # Optional f(ModuleUpdate) lets user code run when just after the point when the module is updated.
 
 class ModuleUpdate:
     # How to look up var from id:
@@ -62,7 +63,7 @@ def _module_update_core(fname, module_name):
         importlib.reload(sys.modules[module_name])
     except Exception as e:
         if "spec not found for the module '__main__'" in str(e):
-            print('Warning: Cannot reload the __main__ module.')
+            print('Warning: Cannot reload the __main__ module; update skipped.')
             pass
         else:
             raise e
@@ -89,12 +90,14 @@ def _module_update_core(fname, module_name):
 
     out = ModuleUpdate(module_name, old_txt, new_txt, old_vars, new_vars)
     uglobals['varflush_queue'].append(out)
+    if module_update_callback:
+        module_update_callback(out)
     return out
 
 def update_one_module(module_name, fname=None, assert_main=True):
     # The module must already be in the file.
     if module_name == '__main__' and assert_main: # odd case, generates spec not found error.
-        raise Exception('Cannot update the main module for some reason. Need to restart when the Termpylus_main.py file changes.')
+        raise Exception('Python disallows updating the main module for some reason. Turn off assert_main to skip updating and not throw an error.')
     elif module_name == '__main__':
         return
     if fname is None:
@@ -107,7 +110,7 @@ def update_one_module(module_name, fname=None, assert_main=True):
     var_watch.just_after_module_update(module_name)
     return out
 
-def update_user_changed_modules(update_on_first_see=True, use_date=False):
+def update_user_changed_modules(update_on_first_see=True, use_date=False, assert_main=False):
     # Updates modules that aren't pip packages or builtin.
     # use_date True should be faster but maybe miss some files?
     # Returns {mname: ModuleUpdate object}
@@ -119,7 +122,7 @@ def update_user_changed_modules(update_on_first_see=True, use_date=False):
         fname = mod_fnames[m]
         file_io.contents_on_first_call(fname) # Store the contents if no original version is stored.
         if needs_update(m, update_on_first_see, use_date):
-            out[m] = update_one_module(m, fname, not update_on_first_see)
+            out[m] = update_one_module(m, fname, assert_main=assert_main)
         else:
             uglobals['filecontents_last_module_update'][fname] = file_io.fload(fname) # These may not be set if update_on_first_see is False.
             uglobals['filemodified_last_module_update'][fname] = file_io.date_mod(fname)
