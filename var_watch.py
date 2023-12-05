@@ -52,23 +52,26 @@ def rm_fn_watcher(varname_full):
 def add_fn_watcher(varname_full, f_code=None):
     # Changes the function in var_name to record it's inputs and outputs.
     # Idempotent: removes any old watchers before adding them.
-    m = sys.modules[ppatch.module_name_of(varname_full)]
-    ppatch.reset_var(varname_full)
-    f_obj = ppatch.get_var(varname_full)
-    if f_code is None:
-        f_obj = ppatch.get_var(varname_full)
-    else:
-        f_obj = eval(f_code, locals=None, globals=m.__dict__) # Since globals is top-level, not sure how it will work inside of a class.
-    f = logged_fn(varname_full, f_obj)
+    mname, _ = ppatch.modulename_varname_split(varname_full)
 
-    ppatch.set_var(varname_full, f)
+    def make_patch_f(varname_full, var_obj, var_code, f_code=f_code):
+        ppatch.reset_var(varname_full)
+
+        if f_code is None:
+            f_obj = var_obj
+        else:
+            f_obj = eval(f_code, locals=None, globals=m.__dict__) # Since globals is top-level, not sure how it will work inside of a class.
+        f_with_logs = logged_fn(varname_full, f_obj)
+        return f_with_logs
+
+    ppatch.add_patch(varname_full, make_patch_f, assert_find_code=False, always_reset_var=True) # No need to assert find code since it is not used.
     vglobals['module_watcher_codes'][varname_full] = f_code
     return f
 
 def remove_module_watchers(module_name):
     var_dict = ppatch.module_vars(module_name, nest_inside_classes=True)
     for vn in var_dict.keys():
-        ppatch.reset_var(module_name, vn)
+        rm_fn_watcher(module_name+'.'+vn)
 
 def add_module_watchers(module_name):
     #Watches all functions in a module, including class methods (although class nstances may need to be re-instanced).
@@ -112,12 +115,3 @@ def get_logs(varname_full):
 
 def remove_all_logs():
     vglobals['logss'] = {}
-
-####### Keep active watchers active when reloading a module ####################
-
-def just_after_module_update(module_name):
-    # Need to re-add them:
-    watchers = vglobals['module_watcher_codes']
-    for varname_full in watchers.keys():
-        if varname_full.startswith(module_name+'.'):
-            add_fn_watcher(varname_full, watchers[varq_name])

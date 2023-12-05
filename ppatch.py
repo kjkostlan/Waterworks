@@ -1,26 +1,32 @@
 # Patch system: Allows making and removing patches to variables.
 #   (Also has functions that get variables from modules)
-import sys, re
+import sys, re, inspect, importlib
 from . import global_vars
 
 # Global variables used:
   # _gld['original_varss'] Saved in set_var, used by reset_var and temp_exec.
   # sys.modules: Used in get_var, set_var, temp_exec, get_vars, get_all_vars.
   #  Note: 'vars' are usually functions.
-_gld = global_vars.global_get('ppaglobals', {'original_varss':{}}) # Name-qual => function; name-qual => inputs-as-dict.
+_gld = global_vars.global_get('ppaglobals', {'original_varss':{}, 'patchess':{}}) # Name-qual => function; name-qual => inputs-as-dict.
 
-def module_name_of(varname_full):
+def modulename_varname_split(varname_full):
+    # Will import modules if possible, since thats how we get vars from them.
+    # The leaf name will have dots if it refers to a member of a class.
     pieces = varname_full.split('.')
     for i in range(len(pieces), 0, -1): # Longest first.
         k = '.'.join(pieces[0:i])
+        if k not in sys.modules:
+            try:
+                importlib.import_module(k)
+            except ModuleNotFoundError:
+                pass
         if k in sys.modules:
-            return k
-    return None
+            return k, varname_full[len(k)+1:]
+    raise Exception('Cannot find as a module or class: '+varname_full)
 
 def get_var(varname_full):
     # Gets the var object.
-    module_name = module_name_of(varname_full)
-    varname_leaf = varname_full[len(module_name)+1:]
+    module_name, varname_leaf = modulename_varname_split(varname_full)
     pieces = varname_leaf.split('.') # More than one piece if classes inside modules are used.
     y = sys.modules[module_name]
     for p in pieces:
@@ -28,8 +34,7 @@ def get_var(varname_full):
     return y
 
 def _v0(varname_full):
-    module_name = module_name_of(varname_full)
-    varname_leaf = varname_full[len(module_name)+1:]
+    module_name, varname_leaf = modulename_varname_split(varname_full)
     return _gld['original_varss'].get(module_name,{}).get(varname_leaf,None)
 
 def is_modified(varname_full):
@@ -44,22 +49,74 @@ def original_var(varname_full):
     return v0
 
 def set_var(varname_full, x):
-    pieces = var_name.split('.')
-    module_name = module_name_of(varname_full)
-    varname_leaf = varname_full[len(module_name)+1:]
-    y = sys.modules[module_name]
+    # Set_var is temporary in that it will not hold after module update. Use add_patch to maintain after module update.
+    module_name, varname_leaf = modulename_varname_split(varname_full)
     if not is_modified(varname_full):
         _gld['original_varss'][module_name] = _gld['original_varss'].get(module_name,{})
         _gld['original_varss'][module_name][varname_leaf] = get_var(module_name, varname_leaf)
+
+    pieces = varname_leaf.split('.')
+    y = sys.modules[module_name]
     for p in pieces[0:-1]:
         y = getattr(y,p)
     setattr(y, pieces[-1], x)
 
+def var_code(varname_full, assert_find_code=True):
+    # assert_find_code False will allow None if it fails to find the code.
+    module_name, varname_leaf = modulename_varname_split(varname_full)
+    module = sys.modules[module_name]
+    x = getattr(module, varname_leaf.split('.')[0])
+    src = inspect.getsource(x).replace('\r\n','\n')
+
+    # There is no easy way to extract the source of individual methods within a class, so the best way is to parse it.
+    # This simple parser will be tricked with ''' ''' with various defs within it.
+    lines = src.split('\n')
+    for def_or_class in varname_leaf.split('.')[1:]:
+        line_ix = -1
+        for i in range(len(lines)):
+            line = lines[i]
+            if line.strip().startswith('def') or line.strip().startswith('class'):
+                def_name = (line+' None').strip().split(' ')[1].split('(')[0].strip()
+                if def_name==def_or_class:
+                    line_ix = i
+                    break
+        if line_ix==-1:
+            if assert_find_code:
+                raise Exception(f'Cannot find the source code for the needed class member within {varname_leaf} (within module {module})')
+            else:
+                return None
+        else:
+            indents = len(lines[line_ix])-len(lstrip(lines[line_ix]))
+            for i in range(line_ix+1, len(lines):
+                line_ix1 = i
+                indents1 = len(lines[i])-len(lstrip(lines[i]))
+                if indents1<=indents:
+                    if lines[i].strip().startswith('def') or lines[i].strip().startswith('class'):
+                        break # Stop when there is a def or class that is *less* ro equal indented than or own.
+            lines = lines[line_ix:line_ix1] # Narrow down.
+    return '\n'.join(lines)
+
 def reset_var(varname_full):
-    module_name = module_name_of(varname_full)
-    varname_leaf = varname_full[len(module_name)+1:]
+    module_name, varname_leaf = modulename_varname_split(varname_full)
     if is_modified(varname_full):
         set_var(varname_full, _gld['original_varss'][module_name][varname_leaf])
+
+def add_patch(varname_full, make_patch_f, assert_find_code=True, always_reset_var=True):
+    # Adds a patch which is persistent across module changes.
+    # The function is f(varname_full, var_obj, var_code) => var_obj.
+    if always_reset_var:
+        reset_var(varname_full)
+    module_name, varname_leaf = modulename_varname_split(varname_full)
+    _gld['patchess'][module_name] = _gld['patchess'].get(module_name, {})
+    _gld['patchess'][module_name][varname_leaf] = {'make_patch_f':make_patch_f, 'assert_src':assert_find_code}
+    set_var(varname_full, f(varname_full, get_var(varname_full), var_code(varname_full, assert_find_code=assert_find_code)))
+
+def remove_patch(varname_full):
+    reset_var(varname_full)
+    module_name, varname_leaf = modulename_varname_split(varname_full)
+    _gld['patchess'][module_name] = _gld['patchess'].get(module_name, {})
+    if varname_leaf in _gld['patchess'][module_name]:
+        del _gld['patchess'][module_name][varname_leaf]
 
 def temp_exec(module_name, class_name, the_code):
     # Temporary exec, inside a class or inside a module.
@@ -133,6 +190,14 @@ def get_vars_recursive(stub, nest_inside_classes=True):
     for m in modules:
         out.extend(module_vars(m, nest_inside_classes))
     return out
+
+def just_after_module_update(module_name): # Re-add patches to the module.
+    patches = _gld['patchess'].get(module_name, {})
+    for k in patches.keys():
+        varname_full = module_name+'.'+k
+        mk_f = patches['make_patch_f']; assert_find_code = patches['assert_src']
+        reset_var(varname_full)
+        set_var(varname_full, mk_f(varname_full, get_var(varname_full), var_code(varname_full, assert_find_code=assert_find_code)))
 
 ######## Object/instance updates, very much pre-alpha ##########################
 

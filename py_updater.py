@@ -1,6 +1,6 @@
 # Tools to keep track of changes, update Python modules after save, and represent said changes as a dict.
 import os, sys, importlib, time
-from . import global_vars, paths, file_io, modules, fittings, var_watch, ppatch
+from . import global_vars, paths, file_io, modules, fittings, ppatch
 tprint = global_vars.tprint
 
 # Use of global variables:
@@ -107,7 +107,7 @@ def update_one_module(module_name, fname=None, assert_main=True):
     tprint('Updating MODULE:', module_name, fname)
 
     out = _module_update_core(fname, module_name)
-    var_watch.just_after_module_update(module_name)
+    ppatch.just_after_module_update(module_name)
     return out
 
 def update_user_changed_modules(update_on_first_see=True, use_date=False, assert_main=False):
