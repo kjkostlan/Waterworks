@@ -87,7 +87,7 @@ def var_code(varname_full, assert_find_code=True):
                 return None
         else:
             indents = len(lines[line_ix])-len(lstrip(lines[line_ix]))
-            for i in range(line_ix+1, len(lines):
+            for i in range(line_ix+1, len(lines)):
                 line_ix1 = i
                 indents1 = len(lines[i])-len(lstrip(lines[i]))
                 if indents1<=indents:
